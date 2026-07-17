@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HtmlVR - Video Sequencer & Renderer</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="editor.css">
+    <link rel="stylesheet" href="editor_animate_tool.css">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="editor_animate_tool.js" defer></script>
+</head>
+<body>
+
+    <!-- Hidden container for JS dependencies that must remain in the DOM -->
+    <div style="display: none;">
+        <header id="toolbar">
+            <div class="logo" id="logo-trigger">
+                <span id="logo-chevron"></span>
+            </div>
+            <button id="btn-play-pause" class="icon-btn">PLAY</button>
+            <div class="time-display" id="time-out">00:00.000</div>
+            <input type="range" id="playhead-slider" min="0" max="30" step="0.01" value="0">
+            <button id="btn-render-toggle" class="accent-btn">RENDER</button>
+            <div id="render-dropdown-menu" class="dropdown-menu"></div>
+        </header>
+    </div>
+
+    <div id="editor-layout">
+        <div id="main-content">
+            <!-- Sidebar: Available Compositions -->
+            <aside id="sidebar">
+                <div id="assets-container" style="display: flex; flex-direction: column; gap: 15px; flex-grow: 1; min-height: 0;">
+                    <h3>Asset Compositions</h3>
+                    <p class="hint">Drag files here to upload, then drag to timeline:</p>
+                    <div id="upload-zone">
+                        <span>Drop files here or click to upload</span>
+                        <input type="file" id="file-uploader" multiple style="display:none;">
+                    </div>
+                    <ul id="asset-list">
+                        <!-- Loaded dynamically from API -->
+                    </ul>
+                </div>
+
+                <!-- Clip Transform Control Panel -->
+                <div id="clip-properties-panel" style="display: none; position: relative; flex-direction: column; gap: 15px; flex-grow: 1; min-height: 0; overflow-y: auto;">
+                    <button id="btn-close-properties" style="position: absolute; right: 0; top: -3px; background: transparent; border: none; color: #64748b; font-size: 20px; cursor: pointer; line-height: 1; transition: color 0.15s; padding: 0 4px;" title="Deselect Clip">&times;</button>
+                    
+                    <!-- Animate Trigger Button -->
+                    <button id="btn-animate-clip" style="width: 100%; padding: 10px 12px; background: linear-gradient(135deg, #8a2be2 0%, #4b0082 100%); border: 1px solid #a855f7; border-radius: 6px; color: #fff; font-weight: bold; font-size: 13px; cursor: pointer; margin-top: 25px; margin-bottom: 5px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(138, 43, 226, 0.4); transition: all 0.2s; letter-spacing: 0.5px; text-transform: uppercase;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+                        </svg>
+                        Animate ↗
+                    </button>
+
+                    <!-- Section: Transform -->
+                    <div class="accordion-section">
+                        <h3 class="accordion-header active" style="color: #00f0ff; margin-bottom: 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                            Clip Transform 
+                            <span class="accordion-icon" style="transition: transform 0.2s; transform: rotate(0deg);">&#9662;</span>
+                        </h3>
+                        <div class="accordion-content" style="display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: #e2e8f0; transition: max-height 0.3s ease-out; overflow: hidden;">
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span>Scale (Uniform)</span>
+                                    <span id="prop-scale-val" style="color: #00f0ff; font-weight: bold;">1.00</span>
+                                </div>
+                                <input type="range" id="prop-scale" min="0.1" max="4.0" step="0.02" value="1.0" class="prop-slider">
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span>Scale X</span>
+                                    <span id="prop-scalex-val" style="color: #00f0ff; font-weight: bold;">1.00</span>
+                                </div>
+                                <input type="range" id="prop-scalex" min="0.1" max="4.0" step="0.02" value="1.0" class="prop-slider">
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span>Scale Y</span>
+                                    <span id="prop-scaley-val" style="color: #00f0ff; font-weight: bold;">1.00</span>
+                                </div>
+                                <input type="range" id="prop-scaley" min="0.1" max="4.0" step="0.02" value="1.0" class="prop-slider">
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span>Offset X (px)</span>
+                                    <span id="prop-panx-val" style="color: #00f0ff; font-weight: bold;">0</span>
+                                </div>
+                                <input type="range" id="prop-panx" min="-1200" max="1200" step="2" value="0" class="prop-slider">
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span>Offset Y (px)</span>
+                                    <span id="prop-pany-val" style="color: #00f0ff; font-weight: bold;">0</span>
+                                </div>
+                                <input type="range" id="prop-pany" min="-800" max="800" step="2" value="0" class="prop-slider">
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span>Rotation (Deg)</span>
+                                    <span id="prop-rotation-val" style="color: #00f0ff; font-weight: bold;">0°</span>
+                                </div>
+                                <input type="range" id="prop-rotation" min="-180" max="180" step="1" value="0" class="prop-slider">
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span>Opacity</span>
+                                    <span id="prop-opacity-val" style="color: #00f0ff; font-weight: bold;">1.00</span>
+                                </div>
+                                <input type="range" id="prop-opacity" min="0.0" max="1.0" step="0.01" value="1.00" class="prop-slider">
+                            </div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 5px; margin-bottom: 5px;">
+                                <span>Mirror (Horizontal)</span>
+                                <input type="checkbox" id="prop-mirror" style="width: 18px; height: 18px; cursor: pointer; accent-color: #00f0ff;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section: Transitions -->
+                    <div class="accordion-section" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; margin-top: 5px;">
+                        <h4 class="accordion-header active" style="color: #a855f7; margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                            Clip Transitions
+                            <span class="accordion-icon" style="transition: transform 0.2s; transform: rotate(0deg);">&#9662;</span>
+                        </h4>
+                        <div class="accordion-content" style="display: flex; flex-direction: column; gap: 10px; transition: max-height 0.3s ease-out; overflow: hidden;">
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span>Transition In</span>
+                                    <select id="prop-trans-in-type" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; padding: 2px 4px; font-size: 11px;">
+                                        <option value="none">None</option>
+                                        <option value="fade">Fade</option>
+                                        <option value="slide-left">Slide Left</option>
+                                        <option value="slide-right">Slide Right</option>
+                                        <option value="slide-up">Slide Up</option>
+                                        <option value="slide-down">Slide Down</option>
+                                        <option value="zoom">Zoom</option>
+                                        <option value="rotate">Rotate</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Duration</span>
+                                    <span id="prop-trans-in-duration-val" style="color: #a855f7; font-weight: bold; font-size: 11px;">0.00s</span>
+                                </div>
+                                <input type="range" id="prop-trans-in-duration" min="0.0" max="5.0" step="0.05" value="0.00" class="prop-slider">
+                            </div>
+
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span>Transition Out</span>
+                                    <select id="prop-trans-out-type" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; padding: 2px 4px; font-size: 11px;">
+                                        <option value="none">None</option>
+                                        <option value="fade">Fade</option>
+                                        <option value="slide-left">Slide Left</option>
+                                        <option value="slide-right">Slide Right</option>
+                                        <option value="slide-up">Slide Up</option>
+                                        <option value="slide-down">Slide Down</option>
+                                        <option value="zoom">Zoom</option>
+                                        <option value="rotate">Rotate</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Duration</span>
+                                    <span id="prop-trans-out-duration-val" style="color: #a855f7; font-weight: bold; font-size: 11px;">0.00s</span>
+                                </div>
+                                <input type="range" id="prop-trans-out-duration" min="0.0" max="5.0" step="0.05" value="0.00" class="prop-slider">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section: Animation -->
+                    <div id="anim-settings-block" class="accordion-section" style="display: none; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; margin-top: 5px;">
+                        <h4 class="accordion-header active" style="color: #10b981; margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                            Clip Animation
+                            <span class="accordion-icon" style="transition: transform 0.2s; transform: rotate(0deg);">&#9662;</span>
+                        </h4>
+                        <div class="accordion-content" style="display: flex; flex-direction: column; gap: 10px; transition: max-height 0.3s ease-out; overflow: hidden;">
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span>Animation Type</span>
+                                    <select id="prop-anim-type" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; padding: 2px 4px; font-size: 11px;">
+                                        <option value="translate">Translate (Linear)</option>
+                                        <option value="translate_sinusoidal">Translate (Sinusoidal)</option>
+                                        <option value="rotate">Rotate</option>
+                                        <option value="scale">Scale</option>
+                                        <option value="shake">Shake / Viggle</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span>Easing</span>
+                                    <select id="prop-anim-easing" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; padding: 2px 4px; font-size: 11px;">
+                                        <option value="linear">Linear</option>
+                                        <option value="sine_in">Sine In</option>
+                                        <option value="sine_out">Sine Out</option>
+                                        <option value="sine_in_out">Sine In-Out</option>
+                                        <option value="elastic">Elastic</option>
+                                        <option value="bounce">Bounce</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Start Time</span>
+                                    <span id="prop-anim-start-val" style="color: #10b981; font-weight: bold; font-size: 11px;">0.00s</span>
+                                </div>
+                                <input type="range" id="prop-anim-start" min="0.0" max="100.0" step="0.05" value="0.00" class="prop-slider">
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">End Time</span>
+                                    <span id="prop-anim-end-val" style="color: #10b981; font-weight: bold; font-size: 11px;">0.00s</span>
+                                </div>
+                                <input type="range" id="prop-anim-end" min="0.0" max="100.0" step="0.05" value="0.00" class="prop-slider">
+                            </div>
+
+                            <div id="prop-anim-dir-row">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Direction (Deg)</span>
+                                    <span id="prop-anim-dir-val" style="color: #10b981; font-weight: bold; font-size: 11px;">90°</span>
+                                </div>
+                                <input type="range" id="prop-anim-dir" min="0" max="360" step="5" value="90" class="prop-slider">
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span id="prop-anim-amp-label" style="font-size: 11px; color: #94a3b8;">Amplitude (px)</span>
+                                    <span id="prop-anim-amp-val" style="color: #10b981; font-weight: bold; font-size: 11px;">30</span>
+                                </div>
+                                <input type="range" id="prop-anim-amp" min="0" max="200" step="1" value="30" class="prop-slider">
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Periodicity / Freq</span>
+                                    <span id="prop-anim-freq-val" style="color: #10b981; font-weight: bold; font-size: 11px;">3</span>
+                                </div>
+                                <input type="range" id="prop-anim-freq" min="1" max="999" step="1" value="3" class="prop-slider">
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Pivot X (%)</span>
+                                    <span id="prop-anim-pivot-x-val" style="color: #10b981; font-weight: bold; font-size: 11px;">50</span>
+                                </div>
+                                <input type="range" id="prop-anim-pivot-x" min="0" max="100" step="0.5" value="50" class="prop-slider">
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Pivot Y (%)</span>
+                                    <span id="prop-anim-pivot-y-val" style="color: #10b981; font-weight: bold; font-size: 11px;">50</span>
+                                </div>
+                                <input type="range" id="prop-anim-pivot-y" min="0" max="100" step="0.5" value="50" class="prop-slider">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section: Subproject -->
+                    <div id="subproj-settings-block" class="accordion-section" style="display: none; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; margin-top: 5px;">
+                        <h4 class="accordion-header active" style="color: #e11d48; margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                            Subproject Internal Defaults
+                            <span class="accordion-icon" style="transition: transform 0.2s; transform: rotate(0deg);">&#9662;</span>
+                        </h4>
+                        <div class="accordion-content" style="display: flex; flex-direction: column; gap: 10px; transition: max-height 0.3s ease-out; overflow: hidden;">
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span>Default Style</span>
+                                    <select id="prop-subproj-trans-type" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; padding: 2px 4px; font-size: 11px;">
+                                        <option value="none">Original (None)</option>
+                                        <option value="fade">Fade</option>
+                                        <option value="slide-left">Slide Left</option>
+                                        <option value="slide-right">Slide Right</option>
+                                        <option value="slide-up">Slide Up</option>
+                                        <option value="slide-down">Slide Down</option>
+                                        <option value="zoom">Zoom</option>
+                                        <option value="rotate">Rotate</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span style="font-size: 11px; color: #94a3b8;">Default Duration</span>
+                                    <span id="prop-subproj-trans-duration-val" style="color: #e11d48; font-weight: bold; font-size: 11px;">0.50s</span>
+                                </div>
+                                <input type="range" id="prop-subproj-trans-duration" min="0.0" max="5.0" step="0.05" value="0.50" class="prop-slider">
+                            </div>
+
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span>Override Rule</span>
+                                    <select id="prop-subproj-trans-override" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; padding: 2px 4px; font-size: 11px;">
+                                        <option value="empty">Apply to empty only</option>
+                                        <option value="all">Override all</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 8px;">
+                        <button id="btn-reset-transform" style="width: 100%; margin-top: 0 !important;">Reset Transform</button>
+                    </div>
+                </div>
+
+                <!-- Sidebar Delete Button Panel (visible for both audio and visual clips when selected) -->
+                <div id="sidebar-delete-container" style="display: none; margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; gap: 8px;">
+                    <button id="btn-sidebar-clone-clip" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #22c55e 0%, #15803d 100%); border: 1px solid #4ade80; border-radius: 6px; color: #fff; font-weight: bold; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3); transition: all 0.2s; letter-spacing: 0.5px; text-transform: uppercase;" title="Clone Selected Clip">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Clone
+                    </button>
+                    <button id="btn-sidebar-delete-clip" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); border: 1px solid #f87171; border-radius: 6px; color: #fff; font-weight: bold; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.2s; letter-spacing: 0.5px; text-transform: uppercase;" title="Delete Selected Clip">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            <line x1="10" y1="11" x2="10" y2="17"></line>
+                            <line x1="14" y1="11" x2="14" y2="17"></line>
+                        </svg>
+                        Delete
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Vertical Splitter Resizer -->
+            <div id="resizer-v" class="resizer resizer-v"></div>
+
+            <!-- Center Viewport Panel -->
+            <main id="viewport-panel">
+                <!-- Floating Right-Side Menu Trigger Tab -->
+                <button id="menu-trigger-btn">‹</button>
+                <div id="canvas-container" style="position: relative;">
+                    <!-- Host render iframe is loaded dynamically -->
+                    <iframe id="preview-iframe" src="" allow="autoplay"></iframe>
+
+                    <!-- Viewport Overlay for Active Clip Manipulation -->
+                    <div id="viewport-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; cursor: pointer; z-index: 10; overflow: hidden;">
+                        <div id="viewport-active-outline" style="position: absolute; display: none; border: 2.5px dashed #00f0ff; box-shadow: 0 0 15px rgba(0, 240, 255, 0.5); pointer-events: auto; cursor: move; box-sizing: border-box; transform: translate(-50%, -50%); transform-origin: center center;">
+                            <!-- Rotate Handle in the Center -->
+                            <div class="rotate-handle" style="position: absolute; width: 28px; height: 28px; background: rgba(0, 0, 0, 0.75); border: 1.5px solid #00f0ff; color: #00f0ff; border-radius: 50%; left: 50%; top: 50%; transform: translate(-50%, -50%); cursor: grab; display: flex; align-items: center; justify-content: center; z-index: 15; box-shadow: 0 0 10px rgba(0, 240, 255, 0.35);" title="Drag to Rotate">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                                </svg>
+                            </div>
+                            <!-- Transform Label Badge -->
+                            <div id="viewport-outline-label" style="position: absolute; bottom: 100%; left: 0; background: rgba(0, 0, 0, 0.85); color: #00f0ff; font-family: monospace; font-size: 11px; padding: 2px 6px; border-radius: 3px 3px 0 0; white-space: nowrap; margin-bottom: 2px; border: 1px solid rgba(0, 240, 255, 0.3); border-bottom: none; pointer-events: none;">Clip: None</div>
+                        </div>
+                    </div>
+                    <button id="btn-shortcuts" class="tooltip" title="Show Keyboard Shortcuts">?</button>
+                    <button id="btn-fullscreen" class="tooltip" title="Toggle Fullscreen">
+                        <svg class="icon-enter" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                        </svg>
+                        <svg class="icon-exit" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                            <path d="M4 14h6v6m10-6h-6v6M4 10h6V4m10 6h-6V4"/>
+                        </svg>
+                    </button>
+                </div>
+            </main>
+
+            <!-- Collapsible Menu Widget Drawer Panel (Right Sidebar) -->
+            <div id="toolbar-menu-widget">
+                
+                <div class="drawer-content-wrapper" style="min-width: 270px; display: flex; flex-direction: column; gap: 18px; width: 100%;">
+                    <!-- Header: Project Info & Close Button -->
+                    <div class="menu-header" style="display: flex; align-items: center; justify-content: space-between; position: relative; padding-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Project:</span>
+                            <span id="project-badge" style="font-size: 11px; font-weight: bold; color: #8a2be2; background: rgba(138, 43, 226, 0.15); border: 1px solid rgba(138, 43, 226, 0.3); border-radius: 4px; padding: 2px 6px; letter-spacing: 0.5px;">default</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button id="btn-back-parent" class="icon-btn tooltip" title="Back to parent project" style="display: none; border-color: #a855f7; align-items: center; justify-content: center; padding: 2px 8px; font-size: 11px; font-weight: bold; background: #0c1a30; gap: 4px; color: #a855f7; border-radius: 4px; cursor: pointer; height: 22px;">
+                                &larr; Back
+                            </button>
+                            <button id="btn-close-menu" title="Close Menu" style="background: transparent; border: none; color: #64748b; font-size: 24px; cursor: pointer; transition: color 0.15s; outline: none; line-height: 1; padding: 0 4px;">&times;</button>
+                        </div>
+                    </div>
+
+                    <!-- Section 1: AI Actions (Primary) -->
+                    <div class="menu-section">
+                        <div class="section-title">AI Agent Orchestrator</div>
+                        <button id="btn-send-agent" class="icon-btn agent-btn tooltip" title="Send timeline comments and instructions to AI Agent" style="border-color: #00f0ff; display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; font-weight: bold; background: #0c1a30; gap: 8px; width: 100%;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00f0ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 0 4px #00f0ff);">
+                                <path d="M12 2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h5z"/>
+                                <rect x="3" y="11" width="18" height="10" rx="2"/>
+                                <line x1="12" y1="8" x2="12" y2="11"/>
+                                <line x1="8" y1="16" x2="8" y2="16.01"/>
+                                <line x1="16" y1="16" x2="16" y2="16.01"/>
+                            </svg>
+                            Send to Agent
+                        </button>
+                    </div>
+
+                    <!-- Section 2: Timeline Editing Options -->
+                    <div class="menu-section">
+                        <div class="section-title">Timeline Controls</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <button id="btn-ripple-toggle" class="icon-btn tooltip" title="Ripple Edit Mode" style="border-color: #64748b; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #64748b; font-weight: bold; width: 100%;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                                </svg>
+                                <span>Ripple Off</span>
+                              </button>
+                              <button id="btn-group-selection" class="icon-btn tooltip" title="Group selected clips into a Subproject" style="border-color: #f59e0b; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #f59e0b; font-weight: bold; width: 100%;">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                      <line x1="12" y1="11" x2="12" y2="17"/>
+                                      <line x1="9" y1="14" x2="15" y2="14"/>
+                                  </svg>
+                                  Group
+                              </button>
+                          </div>
+                      </div>
+
+                      <!-- Section 3: Project Actions -->
+                      <div class="menu-section">
+                          <div class="section-title">Project Management</div>
+                          <div style="display: flex; gap: 10px; width: 100%;">
+                              <button id="btn-switch-project" class="icon-btn tooltip" title="Switch/Open Project" style="border-color: #3b82f6; flex-grow: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: bold; width: 100%;">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                      <polyline points="16 3 21 8 16 13"/>
+                                      <line x1="21" y1="8" x2="9" y2="8"/>
+                                      <polyline points="8 21 3 16 8 11"/>
+                                      <line x1="3" y1="16" x2="15" y2="16"/>
+                                  </svg>
+                                  Switch Project
+                              </button>
+                              <button id="btn-undo-project" class="icon-btn tooltip" title="Undo Workspace Clear" style="border-color: #f59e0b; display: none; align-items: center; justify-content: center; font-weight: bold; width: 100%;">
+                                  Undo Clear
+                              </button>
+                          </div>
+                          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                              <button id="btn-load-project" class="icon-btn tooltip" title="Import Project Package (.zip)" style="border-color: #a855f7; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: bold;">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                      <polyline points="7 10 12 15 17 10"/>
+                                      <line x1="12" y1="15" x2="12" y2="3"/>
+                                  </svg>
+                                  Import ZIP
+                              </button>
+                              <button id="btn-save-project" class="icon-btn tooltip" title="Export Project Package (.zip)" style="border-color: #a855f7; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: bold;">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                      <polyline points="17 8 12 3 7 8"/>
+                                      <line x1="12" y1="3" x2="12" y2="15"/>
+                                  </svg>
+                                  Export ZIP
+                              </button>
+                          </div>
+                      </div>
+
+                      <!-- Section 4: Render Pipeline -->
+                      <div class="menu-section" style="border-bottom: none; padding-bottom: 0;">
+                          <div class="section-title">Muxer Compilation</div>
+                          <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+                              <div style="display: flex; flex-direction: column; gap: 6px;">
+                                  <label for="select-resolution" style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Resolution</label>
+                                  <select id="select-resolution" style="width: 100%; background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px 12px; outline: none; font-size: 12px; cursor: pointer;">
+                                      <option value="1920x1080">1080p Full HD (1920x1080)</option>
+                                      <option value="1280x720">720p HD (1280x720)</option>
+                                      <option value="3840x2160">4K Ultra HD (3840x2160)</option>
+                                  </select>
+                              </div>
+                              <button id="btn-render" class="accent-btn full-width" style="margin-top: 4px; width: 100%;">START RENDER</button>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+        <!-- Horizontal Splitter Resizer -->
+        <div id="resizer-h" class="resizer resizer-h"></div>
+
+        <!-- Timeline Area -->
+        <footer id="timeline-panel">
+            <!-- Master Level VU Meter Panel -->
+            <div id="master-meter-panel" class="collapsed">
+                <button id="btn-toggle-master-meter" title="Toggle Master VU Meter">▸</button>
+                <div class="master-meter-peaks-text" id="master-meter-peaks" title="Max Peak levels (Click to reset)">L:-inf R:-inf</div>
+                <div class="meter-container">
+                    <div class="meter-bars-inner-container">
+                        <div class="meter-bar-wrapper" title="Left Channel (L)">
+                            <div class="meter-bar" id="master-meter-l"></div>
+                            <div class="meter-peak-line" id="master-meter-peak-l"></div>
+                        </div>
+                        <div class="meter-bar-wrapper" title="Right Channel (R)">
+                            <div class="meter-bar" id="master-meter-r"></div>
+                            <div class="meter-peak-line" id="master-meter-peak-r"></div>
+                        </div>
+                        <div class="meter-lufs-indicator" id="master-meter-lufs" title="Loudness (10s LUFS)"></div>
+                        <div class="master-compress-band" title="Drag to adjust Master limiter threshold/makeup"></div>
+                        <div class="master-compress-handle master-compress-handle-top" title="Squeeze loud parts (Master Compressor)"></div>
+                        <div class="master-compress-handle master-compress-handle-bottom" title="Squeeze quiet parts (Master Boost)"></div>
+                    </div>
+                    <div class="meter-scale">
+                        <span>0</span>
+                        <span>-6</span>
+                        <span>-12</span>
+                        <span>-18</span>
+                        <span>-24</span>
+                        <span>-30</span>
+                        <span>-40</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="track-header-col">
+                <!-- Track headers and controls generated dynamically -->
+            </div>
+            <div class="timeline-tracks-col" id="timeline-tracks-container">
+                <!-- Time ticks background layer -->
+                <div id="timeline-ruler">
+                    <!-- Ticks will be added dynamically -->
+                </div>
+
+                <!-- Playhead Marker -->
+                <div id="playhead">
+                    <div class="playhead-handle">+</div>
+                    <div class="playhead-line"></div>
+                </div>
+
+                <!-- Track Rows will be added dynamically -->
+            </div>
+        </footer>
+    </div>
+
+    <!-- Render Progress Modal Overlay -->
+    <div id="render-modal">
+        <div class="modal-box">
+            <h2>Compiling Media Output</h2>
+            <p id="render-status">Starting headless Chromium render engine...</p>
+            <div class="progress-bar-container">
+                <div id="render-progress-fill"></div>
+            </div>
+            <p class="sub-hint">Rendering frames sequentially via Puppeteer & FFmpeg...</p>
+            <div style="margin-top: 10px; display: flex; justify-content: center;">
+                <button id="btn-render-cancel" class="danger-btn" style="margin: 0; padding: 10px 24px;">STOP RENDER</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Comment Modal Overlay -->
+    <div id="comment-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-box compact">
+            <h3 id="comment-modal-title">Add Comment</h3>
+            <textarea id="comment-text" placeholder="Write feedback (e.g. 'Change text to Hello World')"></textarea>
+            <div class="modal-actions">
+                <button id="btn-comment-delete" class="danger-btn">Delete</button>
+                <button id="btn-comment-cancel" class="flat-btn">Cancel</button>
+                <button id="btn-comment-save" class="confirm-btn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project Switch Modal Overlay -->
+    <div id="project-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-box compact">
+            <h3 style="color: #00f0ff;">Open/Switch Project</h3>
+            <div id="project-list-container" style="max-height: 200px; overflow-y: auto; margin: 10px 0; padding: 5px; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; background: rgba(0, 0, 0, 0.2);">
+                <!-- Projects list loaded dynamically -->
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 5px;">
+                <input type="text" id="custom-project-input" placeholder="Or enter new project name..." style="flex-grow: 1; padding: 8px; border: 1px solid rgba(255, 255, 255, 0.1); background: #1e293b; color: #fff; border-radius: 4px; font-size: 13px; outline: none;">
+                <button id="btn-project-go" class="confirm-btn" style="padding: 8px 16px; background: #00f0ff; color: #000;">Go</button>
+            </div>
+            <div class="modal-actions" style="margin-top: 10px;">
+                <button id="btn-project-cancel" class="flat-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+    <!-- Shortcuts Modal Overlay -->
+    <div id="shortcuts-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-box compact" style="max-width: 420px; border: 1px solid rgba(0, 240, 255, 0.3); box-shadow: 0 0 30px rgba(0, 240, 255, 0.15);">
+            <h3 style="color: #00f0ff; margin-bottom: 5px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                ⌨️ Keyboard Shortcuts
+            </h3>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin: 5px 0;">
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Play / Pause</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Space</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Split clip at playhead</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">S</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Delete clip / track</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Delete</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Rewind playhead to start</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">W</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Previous marker / start</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">←</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Next marker</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">→</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Undo</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Ctrl + Z</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Redo</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Ctrl + Y</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Deselect all clips/tracks</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Esc</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Zoom timeline (at mouse)</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Mouse Wheel</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Scroll timeline horizontally</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Shift + Wheel</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Scroll tracks vertically</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Ctrl + Wheel</kbd>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding-top: 4px;">
+                    <span style="color: #94a3b8; font-size: 13px;">Multi-select clips</span>
+                    <kbd style="background: #1e293b; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #f8fafc;">Ctrl / Shift + Click</kbd>
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top: 5px;">
+                <button id="btn-shortcuts-close" class="flat-btn" style="width: 100%; border: 1px solid rgba(255,255,255,0.1); padding: 8px 0; font-weight: bold;">Close</button>
+            </div>
+        </div>
+    </div>
+    <script src="js/api.js"></script>
+    <script src="js/audio-visualizer.js"></script>
+    <script src="js/timeline-ui.js"></script>
+    <script src="editor.js"></script>
+</body>
+</html>

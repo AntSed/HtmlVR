@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium Illustration Style Comparison Gallery</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600&family=Outfit:wght@400;600;800&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
+
+    <style>
+        /* CSS Variables */
+        :root {
+            --bg-color: #0a0a0c;
+            --card-bg: rgba(20, 20, 25, 0.75);
+            --text-main: #a0a0b0;
+            --text-head: #ffffff;
+            --neon-cyan: #00f0ff;
+            --accent-purple: #8a2be2;
+            --accent-gold: #ffd700;
+            --accent-pink: #ff1493;
+            --font-head: 'Outfit', sans-serif;
+            --font-body: 'Montserrat', sans-serif;
+            --font-mono: 'Fira Code', monospace;
+        }
+
+        /* Reset & Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: var(--font-body);
+            line-height: 1.6;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        h1, h2, h3, h4 {
+            font-family: var(--font-head);
+            color: var(--text-head);
+            line-height: 1.2;
+        }
+
+        /* Header & Filters */
+        header {
+            text-align: center;
+            padding: 4rem 2rem 2rem;
+            position: relative;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(138, 43, 226, 0.15) 0%, rgba(10, 10, 12, 0) 70%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(90deg, var(--neon-cyan), var(--accent-purple), var(--accent-pink));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .filters {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 2rem;
+        }
+
+        .filter-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            padding: 0.75rem 1.5rem;
+            border-radius: 50px;
+            font-family: var(--font-head);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .filter-btn:hover {
+            border-color: var(--neon-cyan);
+            color: var(--text-head);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+        }
+
+        .filter-btn.active {
+            background: linear-gradient(90deg, rgba(0, 240, 255, 0.1), rgba(138, 43, 226, 0.1));
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.25);
+        }
+
+        /* Gallery Grid */
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: 2.5rem;
+            padding: 2rem 4rem 4rem;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Card Styles */
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease, border-color 0.4s ease;
+            position: relative;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 240, 255, 0.15);
+            border-color: rgba(0, 240, 255, 0.3);
+        }
+
+        .card-img-wrapper {
+            position: relative;
+            width: 100%;
+            height: 240px;
+            overflow: hidden;
+            background: #111;
+        }
+
+        .card-img-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            cursor: zoom-in;
+            transition: transform 0.6s ease;
+        }
+
+        .card:hover .card-img-wrapper img {
+            transform: scale(1.08);
+        }
+
+        .card-content {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .category-tag {
+            display: inline-block;
+            align-self: flex-start;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--neon-cyan);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .card h2 {
+            font-size: 1.4rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .card p.details {
+            font-size: 0.95rem;
+            margin-bottom: 1.5rem;
+            flex-grow: 1;
+        }
+
+        /* Prompt Template Area */
+        .prompt-container {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1rem;
+            position: relative;
+            margin-top: auto;
+        }
+
+        .prompt-text {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: #d0d0e0;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 3rem; 
+        }
+
+        .copy-btn {
+            position: absolute;
+            bottom: 1rem;
+            left: 1rem;
+            right: 1rem;
+            background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-head);
+            font-family: var(--font-head);
+            padding: 0.6rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .copy-btn.copied {
+            background: rgba(0, 240, 255, 0.15);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+
+        /* Lightbox Modal */
+        .lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(5, 5, 8, 0.9);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+
+        .lightbox.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .lightbox img {
+            max-width: 90vw;
+            max-height: 90vh;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 240, 255, 0.1);
+            transform: scale(0.9);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            object-fit: contain;
+        }
+
+        .lightbox.active img {
+            transform: scale(1);
+        }
+
+        .lightbox-close {
+            position: absolute;
+            top: 2rem;
+            right: 2rem;
+            background: none;
+            border: none;
+            color: var(--text-head);
+            font-size: 2.5rem;
+            cursor: pointer;
+            transition: color 0.3s ease;
+            line-height: 1;
+            z-index: 1001;
+        }
+
+        .lightbox-close:hover {
+            color: var(--neon-cyan);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .gallery {
+                padding: 1rem 1.5rem 3rem;
+                grid-template-columns: 1fr;
+            }
+            h1 {
+                font-size: 2.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Illustration Style Gallery</h1>
+        <p>Explore, compare, and copy prompt templates for premium AI art styles.</p>
+        
+        <div class="filters">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="2D Styles">2D Styles</button>
+            <button class="filter-btn" data-filter="3D Styles">3D Styles</button>
+            <button class="filter-btn" data-filter="Abstract Styles">Abstract Styles</button>
+        </div>
+    </header>
+
+    <main class="gallery" id="gallery">
+        
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_vector.png" alt="Flat Vector Explainer" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3ZlY3Rvci5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Flat Vector Explainer</h2>
+                <p class="details">Harmonic pastel color palette, clean borders, minimalist style, soft depth gradients, central subject composition. Great for highly legible, cozy explainers.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium flat vector illustration of [Subject], clean borders, minimalist style, harmonic pastel color palette, soft shadows, dark obsidian background, cozy educational vector graphics, high resolution, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="3D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_isometric.png" alt="3D Isometric Glassmorphism" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2lzb21ldHJpYy5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">3D Styles</span>
+                <h2>3D Isometric Glassmorphism</h2>
+                <p class="details">Glowing glass elements, holographic structures, neon gradients, dark background, clay textures, futuristic soft lighting. Gives a premium high-tech schematic feel.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium 3D isometric render of [Subject], glowing glass elements, holographic structures, neon gradients, dark obsidian background, clay textures, futuristic soft lighting, vibrant gradients, high resolution, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="3D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_claymorphism.png" alt="Cozy 3D Claymorphism" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2NsYXltb3JwaGlzbS5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">3D Styles</span>
+                <h2>Cozy 3D Claymorphism</h2>
+                <p class="details">Soft, rounded clay figures, miniature wooden details, warm volumetric lighting, pastel gradients. Feels friendly, modern, cozy, and organic.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium 3D claymorphism illustration of [Subject], miniature cozy details, soft volumetric lighting, warm pastel color palette, clean dark obsidian background, 8k render, high resolution</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_papercut.png" alt="Layered Papercut Art" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3BhcGVyY3V0LnBuZyB3aWxsIGxvYWQgaGVyZTwvdGV4dD48L3N2Zz4='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Layered Papercut Art</h2>
+                <p class="details">Textured craft paper layers with soft drop shadows creating physical depth. Rich gradient transitions, warm and storytelling-focused.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium layered papercut art of [Subject], depth layers with soft drop shadows, rich textured craft paper, vibrant warm orange and deep neon blue gradients, minimalist clean layout, dark obsidian background, high resolution, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_schematic.png" alt="Technical Schematic / Blueprint" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3NjaGVtYXRpYy5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Technical Schematic / Blueprint</h2>
+                <p class="details">Glowing neon vector grid lines, holographic network nodes, schematic annotations, tech interface details. Excellent for representing highly complex or abstract systems.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium high-tech blueprint schematic of [Subject], glowing neon cyan and purple vector lines, clean grid pattern, holographic nodes, futuristic interface details, clean dark obsidian background, aesthetic 4k render</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_watercolor.png" alt="Watercolor Explainer" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3dhdGVyY29sb3IucG5nIHdpbGwgbG9hZCBoZXJlPC90ZXh0Pjwvc3ZnPg=='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Watercolor Explainer</h2>
+                <p class="details">Soft watercolor splashes, pencil or ink outlines, dreamy and artistic mood. Perfect for warm, story-driven, and creative visuals.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium watercolor explainer illustration of [Subject], soft watercolor splashes, delicate ink outlines, warm pastel color palette, dreamy artistic mood, clean dark obsidian background, high resolution, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_pixelart.png" alt="Retro 8-Bit Pixel Art" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3BpeGVsYXJ0LnBuZyB3aWxsIGxvYWQgaGVyZTwvdGV4dD48L3N2Zz4='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Retro 8-Bit Pixel Art</h2>
+                <p class="details">Nostalgic 80-90s game aesthetic with distinct pixel grids and vibrant retro colors. Evokes classic video game nostalgia and playfulness.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium 8-bit pixel art illustration of [Subject], nostalgic retro video game style, isometric pixel grid, vibrant color palette, clean dark obsidian background, sharp focus, high resolution</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_popart.png" alt="Pop Art / Comic Explainer" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3BvcGFydC5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Pop Art / Comic Explainer</h2>
+                <p class="details">Graphic novel aesthetic with halftone textures, bold black ink outlines, and high-contrast retro colors. High-energy and stylized.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium pop art comic book illustration of [Subject], halftone texture dots, bold black ink outlines, retro flat colors, high contrast, dark obsidian background, sharp details, high resolution</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="3D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_lowpoly.png" alt="Low-Poly 3D" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2xvd3BvbHkucG5nIHdpbGwgbG9hZCBoZXJlPC90ZXh0Pjwvc3ZnPg=='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">3D Styles</span>
+                <h2>Low-Poly 3D</h2>
+                <p class="details">Angled, faceted 3D models with sharp accent lighting. Gives a clean, geometric, minimalist retro gaming feel.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium low-poly 3D render of [Subject], faceted low-polygon meshes, vibrant accent lighting, minimal game aesthetic, clean dark obsidian background, high resolution, 8k render</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_chalkboard.png" alt="Chalkboard Sketch" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2NoYWxrYm9hcmQucG5nIHdpbGwgbG9hZCBoZXJlPC90ZXh0Pjwvc3ZnPg=='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Chalkboard Sketch</h2>
+                <p class="details">Hand-drawn white and pastel chalk lines on a dusty chalkboard texture. Excellent for academic, explainer, or nostalgic school themes.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium chalkboard sketch illustration of [Subject], hand-drawn white and pastel colored chalk lines, chalkboard texture, slight chalk dust effect, clean dark blackboard background, high resolution</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_synthwave.png" alt="Synthwave Neon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3N5bnRod2F2ZS5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Synthwave Neon</h2>
+                <p class="details">Glowing magenta and cyan neon outlines, retro-futuristic grid, and glowing silhouettes. Delivers an intense, futuristic, and high-energy 80s aesthetic.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium synthwave neon illustration of [Subject], glowing magenta and cyan retro-futuristic wireframe grid, glowing silhouettes, cyberpunk aesthetics, dark background, 4k render</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_vintage.png" alt="Vintage Cutout Collage" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3ZpbnRhZ2UucG5nIHdpbGwgbG9hZCBoZXJlPC90ZXh0Pjwvc3ZnPg=='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Vintage Cutout Collage</h2>
+                <p class="details">Craft collage blending retro photos, old newspaper clippings, and textured paper with rough, physical cuts. Evokes a retro, nostalgic scrapbooking look.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium vintage cutout collage illustration of [Subject], mixed media scrapbooking, textures of aged newspapers, old photography snippets, kraft cardboard edges, dark background, high resolution</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_doodle.png" alt="Playful Doodle Sketch" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2Rvb2RsZS5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Playful Doodle Sketch</h2>
+                <p class="details">Whimsical hand-drawn black and white ink sketch with cute line art and dynamic cartoon characters. Friendly, casual, and highly engaging.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium playful doodle illustration of [Subject], whimsical hand-drawn black and white ink sketch, cute line art, dynamic characters, dark obsidian background, high resolution, cozy doodle art</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_groovy.png" alt="Groovy 70s Cartoon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2dyb292eS5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Groovy 70s Cartoon</h2>
+                <p class="details">Retro 70s vector cartoon with a warm mustard yellow and burnt orange color palette, featuring curvy characters and thick clean outlines. Full of nostalgic vintage charm.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium retro 70s vector illustration of [Subject], groovy cartoon characters, warm mustard yellow and burnt orange color palette, thick clean outlines, dark background, nostalgic vintage vibes, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="3D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_glitch3d.png" alt="Neon Glitch 3D" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2dsaXRjaDNkLnBuZyB3aWxsIGxvYWQgaGVyZTwvdGV4dD48L3N2Zz4='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">3D Styles</span>
+                <h2>Neon Glitch 3D</h2>
+                <p class="details">Glowing neon wireframe 3D meshes with chromatic aberration glitch effects and holographic scanlines. High-tech cyber aesthetic.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium 3D render of [Subject], glowing neon wireframe meshes, chromatic aberration glitch effects, holographic scanlines, dark obsidian background, high tech cyber aesthetics, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_stickman_neon.png" alt="Glowing Neon Stickman" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3N0aWNrbWFuX25lb24ucG5nIHdpbGwgbG9hZCBoZXJlPC90ZXh0Pjwvc3ZnPg=='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Glowing Neon Stickman</h2>
+                <p class="details">Futuristic line stickman figures with glowing neon highlights at joints on a dark obsidian background. Cozy and modern hybrid.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium minimalist 2D stickman line art of [Subject], simple white stick figures with vibrant neon glowing highlights at joints, clean dark obsidian background, friendly and playful, high resolution, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_stickman_primitive.png" alt="Primitive Blackboard Stickman" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3N0aWNrbWFuX3ByaW1pdGl2ZS5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Primitive Blackboard Stickman</h2>
+                <p class="details">Simple white pencil lines forming crude child-like stick figures on a dark chalkboard background. Raw, authentic, and truly primitive.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Super simple child-like 2D stickman line drawing of [Subject], crude white stick figures drawn with pencil, extremely primitive sketch, chalkboard background, raw line art, no glow, basic shapes</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_scribble_neon.png" alt="Premium Scribble Doodles" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3NjcmliYmxlX25lb24ucG5nIHdpbGwgbG9hZCBoZXJlPC90ZXh0Pjwvc3ZnPg=='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Premium Scribble Doodles</h2>
+                <p class="details">High-contrast crayon scribbles and colorful pencil scrawls with soft gradients. Vibrant, energetic, and highly textured.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium raw hand-drawn crayon scribble and colorful pencil scrawl of [Subject], energetic artistic child-like sketch strokes, high contrast, clean dark obsidian background, vibrant expressive lines, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_scribble_primitive.png" alt="Primitive Crayon Scribble" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3NjcmliYmxlX3ByaW1pdGl2ZS5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Primitive Crayon Scribble</h2>
+                <p class="details">Naive childish scrawls and chaotic pencil/crayon scribbles. Raw, naive, and highly expressive, capturing authentic early-childhood drawings.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Messy childish pencil scribbles, chaotic raw child drawings of [Subject], school kids communication, primitive scrawl art, colorful crayons on black paper background, naive art style, very crude sketch</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="3D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_hologram.png" alt="Holographic HUD" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2hvbG9ncmFtLnBuZyB3aWxsIGxvYWQgaGVyZTwvdGV4dD48L3N2Zz4='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">3D Styles</span>
+                <h2>Holographic HUD</h2>
+                <p class="details">3D holographic wireframes with neon cyan and purple HUD grid interfaces. Delivers a high-tech futuristic look.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium 3D holographic wireframe render of [Subject], glowing neon cyan and purple HUD grid interfaces, floating light diagrams, dark obsidian background, high-tech cyber aesthetic, 8k render</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="Abstract Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_stainedglass.png" alt="Stained Glass Mosaic" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3N0YWluZWRnbGFzcy5wbmcgd2lsbCBsb2FkIGhlcmU8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">Abstract Styles</span>
+                <h2>Stained Glass Mosaic</h2>
+                <p class="details">Vibrant geometric glass fragments with dark metallic borders, showcasing beautiful colored light passing through. Rich and cathedral-like.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium stained glass mosaic of [Subject], geometric glass fragments, glowing volumetric light passing through colored glass, vibrant saturated colors, dark metallic solder outlines, obsidian background, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="2D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_charcoal.png" alt="Dramatic Charcoal Sketch" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2NoYXJjb2FsLnBuZyB3aWxsIGxvYWQgaGVyZSw8L3RleHQ+PC9zdmc+'">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">2D Styles</span>
+                <h2>Dramatic Charcoal Sketch</h2>
+                <p class="details">Hand-drawn graphite and charcoal with soft smudge textures and deep chiaroscuro lighting on paper texture. Highly artistic and emotional.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium high-contrast charcoal sketch and graphite pencil drawing of [Subject], soft smudge textures, dramatic chiaroscuro light and shadow, textured paper feel, clean dark background, fine realistic details, 4k</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="3D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_voxel.png" alt="3D Voxel Art" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX3ZveGVsLnBuZyB3aWxsIGxvYWQgaGVyZTwvdGV4dD48L3N2Zz4='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">3D Styles</span>
+                <h2>3D Voxel Art</h2>
+                <p class="details">Blocky, Minecraft-inspired 3D volumetric design with soft pastel colors and warm glowing lighting. Geometric, digital, and friendly.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium 3D voxel art render of [Subject], blocky retro 3D aesthetic, volumetric warm sunlight, soft pastel color palette, clean dark obsidian background, high resolution, 8k render</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" data-category="3D Styles">
+            <div class="card-img-wrapper">
+                <img src="assets/showcase_bioglass.png" alt="Bioluminescent Glass" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiPkluIHB1cmUgZW52aXJvbm1lbnQgYXNzZXRzL3Nob3djYXNlX2Jpb2dsYXNzLnBuZyB3aWxsIGxvYWQgaGVyZTwvdGV4dD48L3N2Zz4='">
+            </div>
+            <div class="card-content">
+                <span class="category-tag">3D Styles</span>
+                <h2>Bioluminescent Glass</h2>
+                <p class="details">Sculpted glass structures glowing with organic inner bioluminescence and soft neon fiber optics. Mystical, premium, and magical.</p>
+                <div class="prompt-container">
+                    <div class="prompt-text">Premium bio-luminescent organic glass sculpture of [Subject], internal glowing neon fibers, translucent colored glass structures, soft magical lighting, clean dark obsidian background, high resolution, 8k render</div>
+                    <button class="copy-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        Copy Prompt Template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <div class="lightbox" id="lightbox">
+        <button class="lightbox-close" id="lightboxClose">×</button>
+        <img src="" alt="Zoomed Showcase Image" id="lightboxImg">
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- Feature 1: Filter Tabs ---
+            const filterBtns = document.querySelectorAll('.filter-btn');
+            const cards = document.querySelectorAll('.card');
+
+            filterBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Update active button state
+                    filterBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+
+                    // Filter cards
+                    const filterValue = btn.getAttribute('data-filter');
+                    
+                    cards.forEach(card => {
+                        const cardCategory = card.getAttribute('data-category');
+                        
+                        if (filterValue === 'all' || filterValue === cardCategory) {
+                            card.style.display = 'flex';
+                            // Slight animation reset trick
+                            card.style.animation = 'none';
+                            card.offsetHeight; // trigger reflow
+                            card.style.animation = null; 
+                        } else {
+                            card.style.display = 'none';
+                        }
+                    });
+                });
+            });
+
+            // --- Feature 2: Zoom Lightbox ---
+            const lightbox = document.getElementById('lightbox');
+            const lightboxImg = document.getElementById('lightboxImg');
+            const lightboxClose = document.getElementById('lightboxClose');
+            const cardImages = document.querySelectorAll('.card-img-wrapper img');
+
+            cardImages.forEach(img => {
+                img.addEventListener('click', () => {
+                    lightboxImg.src = img.src;
+                    lightbox.classList.add('active');
+                });
+            });
+
+            const closeLightbox = () => {
+                lightbox.classList.remove('active');
+                // Optional: clear src after transition to avoid ghost images on next open
+                setTimeout(() => { if(!lightbox.classList.contains('active')) lightboxImg.src = ''; }, 400);
+            };
+
+            lightboxClose.addEventListener('click', closeLightbox);
+            
+            lightbox.addEventListener('click', (e) => {
+                // Close if clicked outside the image
+                if (e.target === lightbox) {
+                    closeLightbox();
+                }
+            });
+
+            // Close lightbox on Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && lightbox.classList.contains('active')) {
+                    closeLightbox();
+                }
+            });
+
+            // --- Feature 3: Prompt Copy Action ---
+            const copyButtons = document.querySelectorAll('.copy-btn');
+
+            copyButtons.forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    // Find the associated prompt text
+                    const promptElement = btn.previousElementSibling;
+                    const textToCopy = promptElement.textContent;
+
+                    try {
+                        await navigator.clipboard.writeText(textToCopy);
+                        
+                        // Visual Feedback
+                        const originalHTML = btn.innerHTML;
+                        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!`;
+                        btn.classList.add('copied');
+
+                        // Revert after 2 seconds
+                        setTimeout(() => {
+                            btn.innerHTML = originalHTML;
+                            btn.classList.remove('copied');
+                        }, 2000);
+
+                    } catch (err) {
+                        console.error('Failed to copy text: ', err);
+                        btn.textContent = 'Failed to copy';
+                        setTimeout(() => {
+                            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy Prompt Template`;
+                        }, 2000);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

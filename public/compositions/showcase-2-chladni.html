@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en" data-composition-variables='[{"id":"highlighterColor", "type":"color", "label":"Highlighter Accent", "default":"#e11d48"}]'>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acoustic Chladni Plate: Resonance Waveforms - Hyperframes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Outfit:wght@400;600;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Heavy-Duty Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="assets/rough.umd.js"></script>
+
+    <style>
+      :root {
+        --bg-whiteboard: #faf8f0;
+      }
+
+      body, html {
+        margin: 0;
+        padding: 0;
+        width: 1920px;
+        height: 1080px;
+        background-color: var(--bg-whiteboard);
+        overflow: hidden;
+        font-family: "Outfit", Arial, sans-serif;
+      }
+
+      #master-root {
+        width: 1920px;
+        height: 1080px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      #whiteboard-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1920px;
+        height: 1080px;
+        display: block;
+        z-index: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="master-root" data-composition-id="showcase-2-chladni" data-width="1920" data-height="1080" data-start="0" data-duration="15">
+      <!-- Synchronized Audio Elements -->
+      <audio id="audio-bow" class="clip" src="assets/bow.wav" data-start="1.1" data-duration="15" data-track-index="0" data-volume="1"></audio>
+      <!-- Whiteboard Presentation Canvas -->
+      <canvas id="whiteboard-canvas" width="1920" height="1080"></canvas>
+
+      <script>
+        // ==========================================================
+        // PROXIED HEADLESS ENVIRONMENT BYPASS: RESTORE CLEAN NATIVE CONSTRUCTORS
+        // ==========================================================
+        let realDoc, realWin;
+        try {
+          realDoc = document.body.ownerDocument;
+          realWin = realDoc.defaultView;
+          
+          // Override window and document globally inside our script context
+          window.addEventListener = realWin.addEventListener.bind(realWin);
+          window.removeEventListener = realWin.removeEventListener.bind(realWin);
+          document.getElementById = realDoc.getElementById.bind(realDoc);
+          document.createElement = realDoc.createElement.bind(realDoc);
+          
+          // Restore native constructors
+          const natives = ['Path2D', 'AudioContext', 'webkitAudioContext', 'requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'];
+          natives.forEach(name => {
+            if (realWin[name]) {
+              window[name] = realWin[name];
+            }
+          });
+        } catch(e) {
+          console.warn("Failed to bypass headless environment proxy:", e);
+        }
+        // ==========================================================
+        // 0. SEEDED DETERMINISTIC PRNG
+        // ==========================================================
+        function makeSeededRandom(seed) {
+          let s = seed;
+          return function() {
+            s = (s * 9301 + 49297) % 233280;
+            return s / 233280;
+          };
+        }
+        let rng;
+        try {
+          rng = makeSeededRandom(2026);
+        } catch(e) {
+          console.error("ERROR IN rng setup: ", e);
+        }
+
+        // ==========================================================
+        // 1. DYNAMIC HYPERFRAMES VARIABLES
+        // ==========================================================
+        const defaultVars = {
+          highlighterColor: "#e11d48"
+        };
+        const vars = defaultVars; // Curated premium branding defaults (bypasses Puppeteer proxy issue)
+
+        // ==========================================================
+        // 2. 2D ANALYTICAL INVERSE KINEMATICS SOLVER (2-segment limb)
+        // ==========================================================
+        function solveIK(xJoint, yJoint, xTarget, yTarget, len1, len2, flip) {
+          const dx = xTarget - xJoint;
+          const dy = yTarget - yJoint;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Prevent trigonometric singularity near boundaries by clamping distance
+          const maxLen = len1 + len2 - 0.4;
+          const minLen = Math.abs(len1 - len2) + 0.4;
+          let tx = xTarget;
+          let ty = yTarget;
+          let d = dist;
+
+          if (dist > maxLen) {
+            tx = xJoint + (dx / dist) * maxLen;
+            ty = yJoint + (dy / dist) * maxLen;
+            d = maxLen;
+          } else if (dist < minLen) {
+            tx = xJoint + (dx / dist) * minLen;
+            ty = yJoint + (dy / dist) * minLen;
+            d = minLen;
+          }
+
+          // Law of Cosines
+          const cosA = (len1 * len1 + d * d - len2 * len2) / (2 * len1 * d);
+          const a = Math.acos(Math.max(-1.0, Math.min(1.0, cosA)));
+
+          // Base vector inclination
+          const phi = Math.atan2(ty - yJoint, tx - xJoint);
+
+          // Joint rotation angle with flip bend
+          const theta = phi + flip * a;
+
+          // Compute knee/elbow joint position
+          const xMid = xJoint + len1 * Math.cos(theta);
+          const yMid = yJoint + len1 * Math.sin(theta);
+
+          return { x: xMid, y: yMid };
+        }
+
+        // ==========================================================
+        // 3. SYNTHESIZED WEB AUDIO RESONANCE & CYMATICS ENGINE
+        // ==========================================================
+        let audioCtx = null;
+        let violinOsc1 = null;
+        let violinOsc2 = null;
+        let LFO = null;
+        let violinGainNode = null;
+        let noiseSource = null;
+        let noiseGainNode = null;
+
+        function initAudioContext() {
+          if (audioCtx) return;
+          try {
+            const globalObj = this || window;
+            const AudioCtxClass = globalObj.AudioContext || globalObj.webkitAudioContext;
+            audioCtx = new AudioCtxClass();
+            
+            // A. VIOLIN RESONANCE ENGINE
+            violinOsc1 = audioCtx.createOscillator();
+            violinOsc2 = audioCtx.createOscillator();
+            violinGainNode = audioCtx.createGain();
+            
+            violinOsc1.type = 'sawtooth';
+            violinOsc2.type = 'sawtooth'; // rich harmonics
+            
+            violinOsc1.frequency.setValueAtTime(110, audioCtx.currentTime);
+            violinOsc2.frequency.setValueAtTime(220, audioCtx.currentTime); 
+            
+            violinGainNode.gain.setValueAtTime(0.0, audioCtx.currentTime);
+            
+            // Plate acoustic body resonance bandpass filter
+            const plateFilter = audioCtx.createBiquadFilter();
+            plateFilter.type = 'bandpass';
+            plateFilter.frequency.value = 1200; // metallic center frequency
+            plateFilter.Q.value = 4.0; // high sharpness
+            
+            // Organic vibrato (LFO)
+            LFO = audioCtx.createOscillator();
+            const lfoGain = audioCtx.createGain();
+            LFO.type = 'sine';
+            LFO.frequency.value = 6; // 6 Hz vibrato
+            lfoGain.gain.value = 3; // depth in Hz
+            
+            LFO.connect(lfoGain);
+            lfoGain.connect(violinOsc1.frequency);
+            lfoGain.connect(violinOsc2.frequency);
+            
+            violinOsc1.connect(plateFilter);
+            violinOsc2.connect(plateFilter);
+            plateFilter.connect(violinGainNode);
+            violinGainNode.connect(audioCtx.destination);
+            
+            LFO.start();
+            violinOsc1.start();
+            violinOsc2.start();
+
+            // B. SAND RUSTLE NOISE ENGINE (White Noise + Bandpass Filter)
+            const bufferSize = audioCtx.sampleRate * 2.0; 
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            
+            // Seeded deterministic noise
+            let s = 7777;
+            for (let i = 0; i < bufferSize; i++) {
+              s = (s * 9301 + 49297) % 233280;
+              data[i] = (s / 233280) * 2.0 - 1.0;
+            }
+            
+            noiseSource = audioCtx.createBufferSource();
+            noiseSource.buffer = buffer;
+            noiseSource.loop = true;
+            
+            noiseGainNode = audioCtx.createGain();
+            noiseGainNode.gain.setValueAtTime(0.0, audioCtx.currentTime);
+            
+            const noiseFilter = audioCtx.createBiquadFilter();
+            noiseFilter.type = 'bandpass';
+            noiseFilter.frequency.value = 1500; // high-pitch rustling
+            noiseFilter.Q.value = 2.0;
+            
+            noiseSource.connect(noiseFilter);
+            noiseFilter.connect(noiseGainNode);
+            noiseGainNode.connect(audioCtx.destination);
+            
+            noiseSource.start();
+          } catch(e) {
+            console.warn("Could not initialize AudioContext", e);
+            audioCtx = null;
+          }
+        }
+
+        function updateAudioEngine(t, bowingSpeed, isMovingPattern, isPlaying) {
+          try {
+            if (!audioCtx) {
+              const isHeadless = typeof navigator !== 'undefined' && (/HeadlessChrome/.test(navigator.userAgent) || navigator.webdriver);
+              if (!isHeadless) {
+                initAudioContext();
+              }
+            }
+            if (!audioCtx) return;
+            
+            if (!isPlaying || t < 1.5 || t >= 14.95) {
+              violinGainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.05);
+              noiseGainNode.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.05);
+              return;
+            }
+            
+            // 1. Dynamic Pitch Selection based on active phase
+            let baseFreq = 110;
+            if (t >= 4.0 && t < 9.0) {
+              baseFreq = 220; // Phase 2 cross frequency
+            } else if (t >= 9.0) {
+              baseFreq = 440; // Phase 3 complex frequency
+            }
+            
+            // Subtle frequency rise proportional to bow speed
+            const speedFreqShift = Math.min(8.0, Math.abs(bowingSpeed) * 1.5);
+            violinOsc1.frequency.setTargetAtTime(baseFreq + speedFreqShift, audioCtx.currentTime, 0.06);
+            violinOsc2.frequency.setTargetAtTime((baseFreq + speedFreqShift) * 2.0, audioCtx.currentTime, 0.06);
+            
+            // Violin sound volume modulates in synchrony with physical bowing velocity
+            let targetViolinGain = Math.min(0.25, Math.abs(bowingSpeed) * 0.12);
+            
+            // Gentle entry ramp during first phase bowing
+            if (t < 4.0) {
+              targetViolinGain *= Math.max(0.0, (t - 1.5) / 2.5);
+            }
+            violinGainNode.gain.setTargetAtTime(targetViolinGain, audioCtx.currentTime, 0.04);
+            
+            // 2. Sand rustling noise operates ONLY during sand pattern changes and bow motion
+            let targetNoiseGain = 0.0;
+            if (isMovingPattern) {
+              // noise peaks in the middle of transitions
+              let transSpeed = 0.0;
+              if (t >= 4.0 && t < 7.0) {
+                transSpeed = Math.sin((t - 4.0) / 3.0 * Math.PI);
+              } else if (t >= 9.0 && t < 12.0) {
+                transSpeed = Math.sin((t - 9.0) / 3.0 * Math.PI);
+              }
+              targetNoiseGain = 0.09 * transSpeed * Math.min(1.0, Math.abs(bowingSpeed));
+            }
+            noiseGainNode.gain.setTargetAtTime(targetNoiseGain, audioCtx.currentTime, 0.05);
+          } catch(e) {}
+        }
+
+        // ==========================================================
+        // 4. STATIC CACHED OFFSCREEN CANVAS (9090 SEED OPTIMIZATION)
+        // ==========================================================
+        let mainCanvas, mainCtx, staticCanvas, staticCtx;
+        try {
+          const docContext = realDoc || document;
+          mainCanvas = docContext.getElementById("whiteboard-canvas");
+          mainCtx = mainCanvas.getContext("2d");
+
+          staticCanvas = docContext.createElement("canvas");
+          staticCanvas.width = 1920;
+          staticCanvas.height = 1080;
+          staticCtx = staticCanvas.getContext("2d");
+        } catch(e) {
+          console.error("ERROR IN CANVAS/CONTEXT INITS:", e.stack || e.message);
+        }
+
+        function initCachedWhiteboard() {
+          const rc = rough.canvas(staticCanvas);
+          const seed = 9090; // Fixed seed completely eliminates shivering on background panels!
+
+          // A. Solid cream dry-erase background
+          staticCtx.fillStyle = "#faf8f0";
+          staticCtx.fillRect(0, 0, 1920, 1080);
+
+          // B. Subtle Blueprint Grid
+          staticCtx.strokeStyle = "rgba(43, 108, 176, 0.035)";
+          staticCtx.lineWidth = 1;
+          for (let x = 40; x < 1920; x += 40) {
+            staticCtx.beginPath(); staticCtx.moveTo(x, 0); staticCtx.lineTo(x, 1080); staticCtx.stroke();
+          }
+          for (let y = 40; y < 1080; y += 40) {
+            staticCtx.beginPath(); staticCtx.moveTo(0, y); staticCtx.lineTo(1920, y); staticCtx.stroke();
+          }
+
+          // C. Walnut wood frame borders
+          rc.rectangle(20, 20, 1880, 1040, {
+            roughness: 1.2,
+            stroke: "#4a2c0f",
+            strokeWidth: 8,
+            seed: seed
+          });
+          rc.rectangle(30, 30, 1860, 1020, {
+            roughness: 0.7,
+            stroke: "#683e16",
+            strokeWidth: 3,
+            seed: seed + 2
+          });
+
+          // D. Main Academic Header
+          staticCtx.save();
+          staticCtx.font = "900 44px 'Outfit'";
+          staticCtx.fillStyle = "#1e293b";
+          staticCtx.textAlign = "center";
+          staticCtx.fillText("ACOUSTIC CHLADNI PLATE: RESONANCE WAVEFORMS", 960, 92);
+          
+          staticCtx.font = "italic 20px 'Architects Daughter'";
+          staticCtx.fillStyle = "#475569";
+          staticCtx.fillText("A Visual Demonstration of Standing Wave Harmonics and Cymatic Sand Geometry", 960, 132);
+          staticCtx.restore();
+
+          // Section Divider
+          rc.line(80, 160, 1840, 160, {
+            roughness: 1.0,
+            stroke: "#1e293b",
+            strokeWidth: 2.5,
+            seed: seed + 4
+          });
+
+          // Ground floor line
+          rc.line(80, 850, 1840, 850, {
+            roughness: 1.3,
+            stroke: "#1e293b",
+            strokeWidth: 3.5,
+            seed: seed + 6
+          });
+
+          // E. PANEL 1: Left Slate Chalkboard Frame (Lecture panel)
+          rc.rectangle(80, 185, 760, 600, {
+            roughness: 1.1,
+            stroke: "#334155",
+            strokeWidth: 2,
+            seed: seed + 8
+          });
+
+          // F. PANEL 2: Right Slate HUD Telemetry
+          rc.rectangle(1140, 185, 700, 260, {
+            roughness: 1.1,
+            stroke: "#0d9488",
+            strokeWidth: 2,
+            seed: seed + 10
+          });
+
+          staticCtx.save();
+          staticCtx.font = "bold 21px 'Outfit'";
+          staticCtx.fillStyle = "#0d9488";
+          staticCtx.fillText("REAL-TIME RESONANCE TELEMETRY HUD", 1165, 222);
+          staticCtx.restore();
+
+          // G. PLATE SUPPORT BASE & STAND (Drawn in background)
+          // Heavy triangular floor mount
+          rc.polygon([[1240, 850], [1400, 850], [1320, 810]], {
+            stroke: "#1e293b",
+            strokeWidth: 2.5,
+            fill: "#e2e8f0",
+            fillStyle: "hachure",
+            hachureAngle: 60,
+            hachureGap: 6,
+            seed: seed + 12
+          });
+          // Vertical solid iron support shaft
+          rc.line(1320, 520, 1320, 810, {
+            stroke: "#1e293b",
+            strokeWidth: 6,
+            roughness: 0.8,
+            seed: seed + 14
+          });
+          
+          // Draw metallic circular plate frame
+          rc.circle(1320, 520, 520, { // diameter = 520 (R = 260)
+            stroke: "#1e293b",
+            strokeWidth: 4,
+            fill: "rgba(226, 232, 240, 0.2)",
+            fillStyle: "solid",
+            roughness: 0.85,
+            seed: seed + 16
+          });
+          
+          // Small central secure bolt
+          rc.circle(1320, 520, 16, {
+            stroke: "#1e293b",
+            strokeWidth: 1.5,
+            fill: "#475569",
+            fillStyle: "solid",
+            seed: seed + 18
+          });
+        }
+
+        // ==========================================================
+        // 5. DETERMINISTIC CYMATICS PHYSICS & SAND PRE-CALCULATIONS
+        // ==========================================================
+        const numParticles = 1200;
+        const particles = [];
+
+        function f_chladni(u, v, n, m, a, b) {
+          return a * Math.cos(n * Math.PI * u) * Math.cos(m * Math.PI * v) - b * Math.cos(m * Math.PI * u) * Math.cos(n * Math.PI * v);
+        }
+
+        function grad_f_sq(u, v, n, m, a, b) {
+          const eps = 1e-4;
+          const f_center = f_chladni(u, v, n, m, a, b);
+          
+          const df_du = (f_chladni(u + eps, v, n, m, a, b) - f_chladni(u - eps, v, n, m, a, b)) / (2 * eps);
+          const df_dv = (f_chladni(u, v + eps, n, m, a, b) - f_chladni(u, v - eps, n, m, a, b)) / (2 * eps);
+          
+          const du = 2 * f_center * df_du;
+          const dv = 2 * f_center * df_dv;
+          
+          return { du, dv, f_val: f_center };
+        }
+
+        function initDeterministicParticles() {
+          const sandRng = makeSeededRandom(2026);
+          
+          // A. Generate initial chaotic coordinates uniformly in unit circle
+          for (let i = 0; i < numParticles; i++) {
+            const r = Math.sqrt(sandRng());
+            const theta = sandRng() * 2 * Math.PI;
+            const u = r * Math.cos(theta);
+            const v = r * Math.sin(theta);
+            
+            particles.push({
+              u0: u,
+              v0: v,
+              u1: u, // Target Pattern 1 (2,2)
+              v1: v,
+              u2: u, // Target Pattern 2 (6,4)
+              v2: v,
+              seed: sandRng() * 2000
+            });
+          }
+          
+          // B. Pre-compute Target 1: Cross Pattern (n=2, m=2, a=1.0, b=1.0)
+          const step_1 = 0.025;
+          for (let i = 0; i < numParticles; i++) {
+            let u = particles[i].u0;
+            let v = particles[i].v0;
+            for (let step = 0; step < 30; step++) {
+              const res = grad_f_sq(u, v, 2, 2, 1.0, 1.0);
+              const len = Math.sqrt(res.du * res.du + res.dv * res.dv);
+              if (len > 1e-6) {
+                // scale step size near node to prevent chattering
+                const current_step = step_1 * Math.min(1.0, Math.abs(res.f_val) * 6.0);
+                u -= current_step * (res.du / len);
+                v -= current_step * (res.dv / len);
+              }
+            }
+            // clamp inside unit circle safely
+            const dist = Math.sqrt(u * u + v * v);
+            if (dist > 0.97) {
+              u = (u / dist) * 0.97;
+              v = (v / dist) * 0.97;
+            }
+            particles[i].u1 = u;
+            particles[i].v1 = v;
+          }
+          
+          // C. Pre-compute Target 2: Complex Star Pattern (n=6, m=4, a=1.0, b=1.0)
+          const step_2 = 0.02;
+          for (let i = 0; i < numParticles; i++) {
+            let u = particles[i].u0;
+            let v = particles[i].v0;
+            for (let step = 0; step < 35; step++) {
+              const res = grad_f_sq(u, v, 6, 4, 1.0, 1.0);
+              const len = Math.sqrt(res.du * res.du + res.dv * res.dv);
+              if (len > 1e-6) {
+                const current_step = step_2 * Math.min(1.0, Math.abs(res.f_val) * 6.0);
+                u -= current_step * (res.du / len);
+                v -= current_step * (res.dv / len);
+              }
+            }
+            const dist = Math.sqrt(u * u + v * v);
+            if (dist > 0.97) {
+              u = (u / dist) * 0.97;
+              v = (v / dist) * 0.97;
+            }
+            particles[i].u2 = u;
+            particles[i].v2 = v;
+          }
+        }
+
+        // ==========================================================
+        // 6. VIOLINIST KINEMATICS & BOW CALCULATIONS
+        // ==========================================================
+        function getSkeletonPoints(t) {
+          const pelvisX = 860;
+          const pelvisY = 775;
+          const torsoH = 75;
+          
+          // torse wiggles in time with the bowing intensity
+          const bowVel = getBowingVelocity(t);
+          const lean = 0.02 - 0.015 * Math.min(1.0, Math.abs(bowVel) * 0.2) * Math.sin(t * Math.PI * 2);
+          
+          const chestX = pelvisX + torsoH * Math.sin(lean);
+          const chestY = pelvisY - torsoH * Math.cos(lean);
+          
+          const headX = chestX + 15 * Math.sin(lean);
+          const headY = chestY - 15 * Math.cos(lean) - 10;
+          
+          return { pelvisX, pelvisY, lean, chestX, chestY, headX, headY };
+        }
+
+        function getBowingProgress(t) {
+          if (t < 1.5) return -1.0;
+          
+          const f1 = 0.6;  // Phase 1 bowing (slow)
+          const f2 = 1.2;  // Phase 2 bowing (medium)
+          const f3 = 2.4;  // Phase 3 bowing (fast, energetic)
+          
+          if (t < 4.0) {
+            const phase = (t - 1.5) * 2 * Math.PI * f1;
+            return -Math.cos(phase);
+          } else if (t < 9.0) {
+            const phase_at_4 = (4.0 - 1.5) * 2 * Math.PI * f1;
+            const phase = phase_at_4 + (t - 4.0) * 2 * Math.PI * f2;
+            return -Math.cos(phase);
+          } else {
+            const phase_at_4 = (4.0 - 1.5) * 2 * Math.PI * f1;
+            const phase_at_9 = phase_at_4 + (9.0 - 4.0) * 2 * Math.PI * f2;
+            const phase = phase_at_9 + (t - 9.0) * 2 * Math.PI * f3;
+            return -Math.cos(phase);
+          }
+        }
+
+        function getBowingVelocity(t) {
+          if (t < 1.5) return 0.0;
+          
+          const f1 = 0.6;
+          const f2 = 1.2;
+          const f3 = 2.4;
+          
+          if (t < 4.0) {
+            const phase = (t - 1.5) * 2 * Math.PI * f1;
+            return 2 * Math.PI * f1 * Math.sin(phase);
+          } else if (t < 9.0) {
+            const phase_at_4 = (4.0 - 1.5) * 2 * Math.PI * f1;
+            const phase = phase_at_4 + (t - 4.0) * 2 * Math.PI * f2;
+            return 2 * Math.PI * f2 * Math.sin(phase);
+          } else {
+            const phase_at_4 = (4.0 - 1.5) * 2 * Math.PI * f1;
+            const phase_at_9 = phase_at_4 + (9.0 - 4.0) * 2 * Math.PI * f2;
+            const phase = phase_at_9 + (t - 9.0) * 2 * Math.PI * f3;
+            return 2 * Math.PI * f3 * Math.sin(phase);
+          }
+        }
+
+        // ==========================================================
+        // 7. RENDER SUB-COMPONENTS
+        // ==========================================================
+
+        function drawChalkboardLecture(rc, ctx, t, seedOffset) {
+          ctx.save();
+          ctx.font = "bold 24px 'Outfit'";
+          ctx.fillStyle = "#1e293b";
+          ctx.textAlign = "left";
+          
+          // Progressive whiteboard layout revelation
+          if (t >= 0.5) {
+            ctx.fillText("Lecture: Cymatics & Standing Waves", 110, 235);
+          }
+          
+          if (t >= 1.2) {
+            ctx.font = "italic bold 18px 'Architects Daughter'";
+            ctx.fillStyle = "#2563eb"; // Blue chalk marker
+            ctx.fillText("Standing wave amplitude equation:", 110, 280);
+          }
+          
+          if (t >= 2.0) {
+            ctx.font = "bold 19px 'Outfit'";
+            ctx.fillStyle = "#1e293b";
+            ctx.fillText("f(x,y) = a*cos(n*pi*x)*cos(m*pi*y) - b*cos(m*pi*x)*cos(n*pi*y)", 110, 325);
+          }
+          
+          if (t >= 3.0) {
+            ctx.font = "italic 17px 'Architects Daughter'";
+            ctx.fillStyle = "#475569";
+            ctx.fillText("Resonance nodes occur exactly where f(x, y) = 0.", 110, 370);
+            ctx.fillText("Vibrations kick sand into stable zero-amplitude paths.", 110, 400);
+          }
+
+          // A. Draw cross pattern blueprint sketch on chalkboard
+          if (t >= 4.5) {
+            ctx.save();
+            ctx.font = "bold 16px 'Outfit'";
+            ctx.fillStyle = "#0d9488";
+            ctx.fillText("Pattern 1: Mode (n=2, m=2) at f = 220 Hz", 120, 470);
+            
+            // Draw schematic cross circle
+            rc.circle(180, 560, 100, { stroke: "#64748b", strokeWidth: 1.5, seed: 1010 + seedOffset });
+            rc.line(180, 510, 180, 610, { stroke: vars.highlighterColor, strokeWidth: 2, seed: 1011 + seedOffset });
+            rc.line(130, 560, 230, 560, { stroke: vars.highlighterColor, strokeWidth: 2, seed: 1012 + seedOffset });
+            
+            // Active Mode highlighters on chalkboard
+            if (t >= 4.5 && t < 9.0) {
+              rc.rectangle(105, 448, 350, 32, {
+                fill: "rgba(13, 148, 136, 0.12)",
+                fillStyle: "solid",
+                stroke: "#0d9488",
+                strokeWidth: 1,
+                seed: 2026 + seedOffset
+              });
+            }
+            ctx.restore();
+          }
+
+          // B. Draw star pattern blueprint sketch on chalkboard
+          if (t >= 9.5) {
+            ctx.save();
+            ctx.font = "bold 16px 'Outfit'";
+            ctx.fillStyle = "#e11d48";
+            ctx.fillText("Pattern 2: Mode (n=6, m=4) at f = 440 Hz", 450, 470);
+            
+            // Draw schematic star circle (simplified rings & radiating rays)
+            rc.circle(510, 560, 100, { stroke: "#64748b", strokeWidth: 1.5, seed: 2020 + seedOffset });
+            rc.circle(510, 560, 55, { stroke: vars.highlighterColor, strokeWidth: 1.5, seed: 2021 + seedOffset });
+            
+            for (let a = 0; a < 180; a += 45) {
+              const rad = (a * Math.PI) / 180;
+              rc.line(510 - 50 * Math.cos(rad), 560 - 50 * Math.sin(rad), 510 + 50 * Math.cos(rad), 560 + 50 * Math.sin(rad), {
+                stroke: vars.highlighterColor,
+                strokeWidth: 1.5,
+                seed: 2022 + seedOffset + a
+              });
+            }
+            
+            if (t >= 9.5) {
+              rc.rectangle(435, 448, 350, 32, {
+                fill: "rgba(225, 29, 72, 0.12)",
+                fillStyle: "solid",
+                stroke: "#e11d48",
+                strokeWidth: 1,
+                seed: 3030 + seedOffset
+              });
+            }
+            ctx.restore();
+          }
+
+          ctx.restore();
+        }
+
+        function drawViolinistAndBow(rc, ctx, t, sk, seedOffset) {
+          const seed = 3030 + seedOffset;
+          const stickColor = "#1e293b";
+          const headFill = "#1e293b";
+          
+          // 1. Bowing positions
+          const bowProg = getBowingProgress(t);
+          const handR_X = 1010;
+          const handR_Y = 520 + 130 * bowProg;
+          
+          const plateContactX = 1060;
+          const plateContactY = 520;
+          
+          // Solve bow line direction from hand to plate edge
+          const dx = plateContactX - handR_X;
+          const dy = plateContactY - handR_Y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const metaUX = dx / dist;
+          const metaUY = dy / dist;
+          
+          // Bow extends in both directions
+          const bowLength = 370;
+          const bowStartX = handR_X - 30 * metaUX;
+          const bowStartY = handR_Y - 30 * metaUY;
+          const bowEndX = bowStartX + bowLength * metaUX;
+          const bowEndY = bowStartY + bowLength * metaUY;
+          
+          // 2. Solve stickman arm/leg joints
+          const shoulderR_X = sk.chestX + 8;
+          const shoulderR_Y = sk.chestY + 5;
+          const shoulderL_X = sk.chestX - 8;
+          const shoulderL_Y = sk.chestY + 5;
+          
+          // Solve right arm IK (holds bow handle)
+          const elbowR = solveIK(shoulderR_X, shoulderR_Y, handR_X, handR_Y, 50, 45, 1);
+          
+          // Solve left arm IK (steadies stand at plate base pillar)
+          const handL_X = 1060;
+          const handL_Y = 640;
+          const elbowL = solveIK(shoulderL_X, shoulderL_Y, handL_X, handL_Y, 52, 45, -1);
+          
+          // Solve Legs IK (Stands still)
+          const hipL_X = sk.pelvisX - 5 * Math.cos(sk.lean);
+          const hipL_Y = sk.pelvisY + 2;
+          const hipR_X = sk.pelvisX + 5 * Math.cos(sk.lean);
+          const hipR_Y = sk.pelvisY - 2;
+
+          const footL_X = sk.pelvisX - 35;
+          const footR_X = sk.pelvisX + 35;
+          const footY = 850;
+
+          const kneeL = solveIK(hipL_X, hipL_Y, footL_X, footY, 45, 45, -1);
+          const kneeR = solveIK(hipR_X, hipR_Y, footR_X, footY, 45, 45, -1);
+          
+          // 3. DRAW VIOLINIST SKELETON
+          // A. Head
+          rc.circle(sk.headX, sk.headY, 22, {
+            stroke: stickColor,
+            strokeWidth: 2,
+            roughness: 1.0,
+            seed: seed
+          });
+          
+          // Facial features tracking the bowing point
+          drawEyes(ctx, t, sk);
+          
+          // B. Spine
+          rc.line(sk.pelvisX, sk.pelvisY, sk.chestX, sk.chestY, { stroke: stickColor, strokeWidth: 3.5, roughness: 1.0, seed: seed + 5 });
+
+          // C. Left Leg
+          rc.line(hipL_X, hipL_Y, kneeL.x, kneeL.y, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 10 });
+          rc.line(kneeL.x, kneeL.y, footL_X, footY, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 15 });
+
+          // D. Right Leg
+          rc.line(hipR_X, hipR_Y, kneeR.x, kneeR.y, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 20 });
+          rc.line(kneeR.x, kneeR.y, footR_X, footY, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 25 });
+
+          // E. Left Arm (Steadying)
+          rc.line(shoulderL_X, shoulderL_Y, elbowL.x, elbowL.y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 30 });
+          rc.line(elbowL.x, elbowL.y, handL_X, handL_Y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 35 });
+
+          // F. Right Arm (Bowing)
+          rc.line(shoulderR_X, shoulderR_Y, elbowR.x, elbowR.y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 40 });
+          rc.line(elbowR.x, elbowR.y, handR_X, handR_Y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 45 });
+          
+          // G. Draw violin bow line (hair and frog)
+          if (t >= 1.0) {
+            // Bow stick
+            rc.line(bowStartX, bowStartY, bowEndX, bowEndY, {
+              stroke: "#854d0e", // Brown wooden bow
+              strokeWidth: 3.5,
+              roughness: 0.8,
+              seed: seed + 50
+            });
+            // Bow horsehair line (offset slightly)
+            rc.line(bowStartX + 2 * metaUY, bowStartY - 2 * metaUX, bowEndX + 2 * metaUY, bowEndY - 2 * metaUX, {
+              stroke: "#e2e8f0", 
+              strokeWidth: 1.2,
+              seed: seed + 55
+            });
+            // Frog frog handle details
+            rc.circle(handR_X, handR_Y, 7, {
+              stroke: "#1e293b",
+              fill: "#0f172a",
+              fillStyle: "solid",
+              seed: seed + 60
+            });
+          }
+        }
+
+        function drawEyes(ctx, t, sk) {
+          ctx.save();
+          ctx.strokeStyle = "#1e293b";
+          ctx.lineWidth = 1.5;
+          ctx.fillStyle = "#ffffff";
+          
+          const eyeLX = sk.headX - 8;
+          const eyeLY = sk.headY - 3;
+          const eyeRX = sk.headX - 0;
+          const eyeRY = sk.headY - 5;
+          
+          const eyeRad = 4.0;
+          
+          ctx.beginPath();
+          ctx.arc(eyeLX, eyeLY, eyeRad, 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+          
+          ctx.beginPath();
+          ctx.arc(eyeRX, eyeRY, eyeRad, 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+          
+          // Pupil tracks the point where bow excites plate edge
+          ctx.fillStyle = "#000000";
+          const focusX = 1060;
+          const focusY = 520;
+          
+          const angleL = Math.atan2(focusY - eyeLY, focusX - eyeLX);
+          const angleR = Math.atan2(focusY - eyeRY, focusX - eyeRX);
+          
+          ctx.beginPath();
+          ctx.arc(eyeLX + 1.8 * Math.cos(angleL), eyeLY + 1.8 * Math.sin(angleL), 1.2, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.beginPath();
+          ctx.arc(eyeRX + 1.8 * Math.cos(angleR), eyeRY + 1.8 * Math.sin(angleR), 1.2, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.restore();
+        }
+
+        function drawSoundWaveRipples(rc, ctx, t, seedOffset) {
+          const bowVel = getBowingVelocity(t);
+          if (Math.abs(bowVel) < 0.1) return;
+          
+          ctx.save();
+          const cx = 1060;
+          const cy = 520;
+          
+          // Radiating ripple radii
+          const r1 = ((t * 110) % 90) + 12;
+          const r2 = (((t * 110) + 45) % 90) + 12;
+          
+          const opt = {
+            stroke: "rgba(148, 163, 184, 0.5)",
+            strokeWidth: 1.5,
+            roughness: 1.5,
+            seed: 4040 + seedOffset
+          };
+          
+          // Expanding arcs facing leftwards
+          rc.arc(cx, cy, r1 * 2, r1 * 2, Math.PI * 0.5, Math.PI * 1.5, false, opt);
+          rc.arc(cx, cy, r2 * 2, r2 * 2, Math.PI * 0.5, Math.PI * 1.5, false, { ...opt, seed: opt.seed + 12 });
+          ctx.restore();
+        }
+
+        function drawSandGrains(ctx, t, weights) {
+          ctx.save();
+          ctx.fillStyle = "rgba(43, 33, 24, 0.9)"; // Beautiful granular sand color
+          
+          const cX = 1320;
+          const cY = 520;
+          const R = 260;
+          
+          const chWeight = weights.chaotic;
+          const p1Weight = weights.p1;
+          const p2Weight = weights.p2;
+          const vibIntensity = weights.vib;
+          
+          // Select active Chladni modes for real-time wiggling
+          let n_cur = 2, m_cur = 2;
+          if (p2Weight > p1Weight) {
+            n_cur = 6; m_cur = 4;
+          }
+          
+          // Draw all 1200 grains
+          for (let i = 0; i < numParticles; i++) {
+            const p = particles[i];
+            
+            // Linear blend of coordinates
+            const u = chWeight * p.u0 + p1Weight * p.u1 + p2Weight * p.u2;
+            const v = chWeight * p.v0 + p1Weight * p.v1 + p2Weight * p.v2;
+            
+            // Jitter amplitude is proportional to the plate amplitude at that specific coordinate
+            const f_amp = f_chladni(u, v, n_cur, m_cur, 1.0, 1.0);
+            const maxJitter = 0.045; // maximum jitter distance
+            const jitterDist = maxJitter * Math.abs(f_amp) * vibIntensity;
+            
+            // High frequency wiggling angle
+            const angle = p.seed + t * 165;
+            const u_jit = u + jitterDist * Math.cos(angle);
+            const v_jit = v + jitterDist * Math.sin(angle);
+            
+            const px = cX + u_jit * R;
+            const py = cY + v_jit * R;
+            
+            // draw tiny grain rect
+            ctx.fillRect(px - 1, py - 1, 2, 2);
+          }
+          ctx.restore();
+        }
+
+        // ==========================================================
+        // 8. PRESENTATION CHOREOGRAPHY SEEK LOOP (60 FPS)
+        // ==========================================================
+        let animState, masterTL;
+        try {
+          animState = {
+            time: 0.0,
+            lastTime: 0.0
+          };
+          masterTL = gsap.timeline({ paused: true });
+          masterTL.to(animState, {
+            time: 15.0,
+            duration: 15.0,
+            ease: "none"
+          }, 0.0);
+        } catch(e) {
+          console.error("ERROR IN GSAP SETUP:", e.stack || e.message);
+        }
+
+        function getSandWeights(t) {
+          // Returns { chaotic, p1, p2, vib }
+          if (t < 2.0) {
+            return { chaotic: 1.0, p1: 0.0, p2: 0.0, vib: 0.0 };
+          } else if (t < 4.0) {
+            const w = (t - 2.0) / 2.0;
+            return {
+              chaotic: 1.0 - 0.22 * w,
+              p1: 0.22 * w,
+              p2: 0.0,
+              vib: 0.35 * w
+            };
+          } else if (t < 7.0) {
+            const w = (t - 4.0) / 3.0;
+            const ease = w * w * (3 - 2 * w);
+            return {
+              chaotic: 0.78 * (1.0 - ease),
+              p1: 0.22 + 0.78 * ease,
+              p2: 0.0,
+              vib: 0.35 + 0.65 * Math.sin(w * Math.PI) // Peak vibration in middle of transition
+            };
+          } else if (t < 9.0) {
+            return { chaotic: 0.0, p1: 1.0, p2: 0.0, vib: 0.12 }; // Stable Cross
+          } else if (t < 10.0) {
+            const w = (t - 9.0) / 1.0;
+            return {
+              chaotic: 0.55 * w,
+              p1: 1.0 - 1.0 * w,
+              p2: 0.45 * w,
+              vib: 0.12 + 0.88 * w // Heavy wiggling as frequency alters
+            };
+          } else if (t < 12.5) {
+            const w = (t - 10.0) / 2.5;
+            const ease = w * w * (3 - 2 * w);
+            return {
+              chaotic: 0.55 * (1.0 - ease),
+              p1: 0.0,
+              p2: 0.45 + 0.55 * ease,
+              vib: 1.0 - 0.82 * ease // Settles down
+            };
+          } else {
+            return { chaotic: 0.0, p1: 0.0, p2: 1.0, vib: 0.18 }; // Stable Star
+          }
+        }
+
+        function seekSceneAtTime(time) {
+          mainCtx.clearRect(0, 0, 1920, 1080);
+
+          // A. Draw Cached Slate background (No shivering!)
+          mainCtx.drawImage(staticCanvas, 0, 0);
+
+          const rc = rough.canvas(mainCanvas, { options: { roughness: 1.15 } });
+          const wiggleFrame = Math.floor(time * 8.0) % 4;
+          const seedOffset = wiggleFrame * 157;
+
+          const sk = getSkeletonPoints(time);
+          const bowVel = getBowingVelocity(time);
+          const weights = getSandWeights(time);
+          const isMovingPattern = (time >= 4.0 && time < 7.0) || (time >= 9.0 && time < 12.0);
+
+          // B. DRAW ACTIVE COMPONENTS
+          drawChalkboardLecture(rc, mainCtx, time, seedOffset);
+          drawSoundWaveRipples(rc, mainCtx, time, seedOffset);
+          drawViolinistAndBow(rc, mainCtx, time, sk, seedOffset);
+          drawSandGrains(mainCtx, time, weights);
+
+          // C. REAL-TIME HUD INDICATORS
+          mainCtx.save();
+          mainCtx.font = "bold 16px 'Outfit'";
+          mainCtx.fillStyle = "#334155";
+
+          const frequency = time < 4.0 ? 110 : (time < 9.0 ? 220 : 440);
+          const currentMode = time < 4.0 ? "None (Inertia)" : (time < 9.0 ? "n=2, m=2 (Cross)" : "n=6, m=4 (Star)");
+          const speedAbs = Math.round(Math.abs(bowVel) * 100);
+
+          let statusText = "PHASE 1: INERT/CHAOTIC GRAINS";
+          if (time >= 1.5 && time < 4.0) statusText = "BOW CONTACT: HARMONIC COUPLING BUILD";
+          else if (time >= 4.0 && time < 7.0) statusText = "TRANSITION: DISPERSION & NODAL SEARCH";
+          else if (time >= 7.0 && time < 9.0) statusText = "STABLE MODE: FUNDAMENTAL CROSS PATTERN";
+          else if (time >= 9.0 && time < 10.0) statusText = "FREQUENCY JUMP: DESTRUCTIVE INTERFERENCE";
+          else if (time >= 10.0 && time < 12.5) statusText = "TRANSITION: HARMONIC ALIGNMENT SEARCH";
+          else if (time >= 12.5) statusText = "STABLE MODE: HARMONIC STAR PATTERN";
+
+          mainCtx.fillText(`Bowing Frequency: ${frequency} Hz`, 1165, 268);
+          mainCtx.fillText(`Bowing Velocity: ${speedAbs} px/s`, 1165, 308);
+          mainCtx.fillText(`Active Wave Mode: ${currentMode}`, 1165, 348);
+          mainCtx.fillText(`Theoretical Sand Nodes: ${numParticles} grains`, 1165, 388);
+
+          // Render highlighted Status Box
+          rc.rectangle(1160, 408, 545, 36, {
+            fill: statusText.includes("STABLE") ? "rgba(13, 148, 136, 0.15)" : vars.highlighterColor + "15",
+            fillStyle: "solid",
+            stroke: statusText.includes("STABLE") ? "#0d9488" : vars.highlighterColor,
+            strokeWidth: 1.2,
+            roughness: 1.0,
+            seed: 4545 + seedOffset
+          });
+          mainCtx.fillStyle = statusText.includes("STABLE") ? "#0d9488" : vars.highlighterColor;
+          mainCtx.fillText(`Status: ${statusText}`, 1175, 431);
+          mainCtx.restore();
+
+          // D. WEB AUDIO API DYNAMIC UPDATE
+          const isPlaying = (time !== animState.lastTime);
+          updateAudioEngine(time, bowVel, isMovingPattern, isPlaying);
+
+          animState.lastTime = time;
+        }
+
+        // ==========================================================
+        // 9. INITIALIZATION & HYPERFRAMES TIMELINE REGISTRATION
+        // ==========================================================
+        try {
+          let isInitialized = false;
+          function doInit() {
+            if (isInitialized) return;
+            isInitialized = true;
+            try {
+              initCachedWhiteboard();
+              initDeterministicParticles();
+              seekSceneAtTime(0);
+            } catch(err) {
+              console.error("ERROR IN doInit:", err.stack || err.message);
+            }
+          }
+
+          if (masterTL) {
+            masterTL.eventCallback("onUpdate", () => {
+              try {
+                // Ensure initialized on first seek
+                doInit();
+                seekSceneAtTime(masterTL.time());
+              } catch(err) {
+                console.error("ERROR IN SEEK SCENE:", err.stack || err.message);
+              }
+            });
+          }
+
+          window.addEventListener('click', () => {
+            try {
+              initAudioContext();
+              if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            } catch(e) {}
+          });
+
+          // Run immediately
+          doInit();
+
+          window.addEventListener('DOMContentLoaded', () => {
+            doInit();
+          });
+
+          if (document.readyState === "complete" || document.readyState === "interactive") {
+            doInit();
+          }
+
+          // Register globally on __timelines
+          window.__timelines = window.__timelines || {};
+          window.__timelines["showcase-2-chladni"] = masterTL || gsap.timeline({paused: true});
+        } catch(e) {
+          console.error("ERROR IN FINAL PROTOCOLS:", e.stack || e.message);
+        }
+      </script>
+    </div>
+  </body>
+</html>

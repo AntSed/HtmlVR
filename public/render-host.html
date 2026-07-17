@@ -1,0 +1,2441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HtmlVR - Render Host</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <script src="webm-muxer.js"></script>
+    <script src="js/render-audio.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #18181b; /* Charcoal workspace background */
+        }
+        #container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        #frame-background {
+            position: absolute;
+            background-color: #000000; /* True black for video area */
+            left: 50%;
+            top: 50%;
+            transform-origin: center center;
+            pointer-events: none;
+            z-index: 0;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+        #frame-outline {
+            position: absolute;
+            border: 1px dashed rgba(255, 255, 255, 0.25); /* Dashed outline */
+            left: 50%;
+            top: 50%;
+            transform-origin: center center;
+            pointer-events: none;
+            z-index: 9999; /* Above all content */
+        }
+        .clip-iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <!-- Active frame background (black) and outline (dashed) -->
+        <div id="frame-background"></div>
+        <div id="frame-outline"></div>
+    </div>
+
+    <script>
+        if (typeof WebmMuxer === 'undefined' && typeof WebMMuxer !== 'undefined') {
+            window.WebmMuxer = WebMMuxer;
+        }
+        // Parse project config from URL query parameter (Base64 or project_name)
+        const params = new URLSearchParams(window.location.search);
+        const projectBase64 = params.get('project');
+        const projectName = params.get('project_name');
+        const globalWidth = parseInt(params.get('width')) || 1920;
+        const globalHeight = parseInt(params.get('height')) || 1080;
+        
+        // Subproject nested transition parameters
+        const subprojDefaultTransition = params.get('subproj_default_transition');
+        const subprojTransitionDuration = parseFloat(params.get('subproj_transition_duration')) || 0.5;
+        const subprojTransitionOverride = params.get('subproj_transition_override') || 'empty';
+        
+        let project = { tracks: [] };
+        window.project = project;
+
+        // Initialize subproject rendering canvas
+        let subprojectCanvas = null;
+        let subprojectCtx = null;
+
+        function getSubprojectCanvas() {
+            if (!subprojectCanvas) {
+                subprojectCanvas = document.createElement('canvas');
+                subprojectCanvas.width = globalWidth;
+                subprojectCanvas.height = globalHeight;
+                subprojectCtx = subprojectCanvas.getContext('2d');
+                window.subprojectCanvas = subprojectCanvas;
+                window.subprojectCtx = subprojectCtx;
+            }
+            return subprojectCanvas;
+        }
+        window.getSubprojectCanvas = getSubprojectCanvas;
+
+
+
+        const container = document.getElementById('container');
+        const trackElements = [];
+        window.trackElements = trackElements;
+        let isCurrentlyPlaying = false;
+        let currentPlayheadTime = 0.0;
+
+
+        function getEnvelopeVolume(points, t, duration) {
+            if (!points || points.length === 0) return 1.0;
+            const sorted = [...points].sort((a, b) => a.t - b.t);
+            if (t <= sorted[0].t) return sorted[0].v;
+            if (t >= sorted[sorted.length - 1].t) return sorted[sorted.length - 1].v;
+            
+            let idx = 0;
+            for (let i = 0; i < sorted.length - 1; i++) {
+                if (t >= sorted[i].t && t <= sorted[i + 1].t) {
+                    idx = i;
+                    break;
+                }
+            }
+            const p1 = sorted[idx];
+            const p2 = sorted[idx + 1];
+            const dt = p2.t - p1.t;
+            if (dt === 0) return p1.v;
+            const u = (t - p1.t) / dt;
+            
+            const v = p1.v + u * (p2.v - p1.v);
+            return Math.max(0.0, Math.min(1.0, v));
+        }
+
+        function adjustScaling() {
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            if (containerWidth === 0 || containerHeight === 0) return;
+
+            const scale = Math.min(containerWidth / globalWidth, containerHeight / globalHeight);
+
+            // Size and scale the outline and background frame elements
+            const frameBg = document.getElementById('frame-background');
+            const frameOutline = document.getElementById('frame-outline');
+            if (frameBg) {
+                frameBg.style.width = `${globalWidth}px`;
+                frameBg.style.height = `${globalHeight}px`;
+                frameBg.style.transform = `translate(-50%, -50%) scale(${scale})`;
+            }
+            if (frameOutline) {
+                frameOutline.style.width = `${globalWidth}px`;
+                frameOutline.style.height = `${globalHeight}px`;
+                frameOutline.style.transform = `translate(-50%, -50%) scale(${scale})`;
+            }
+
+            trackElements.forEach(el => {
+                applyElementTransform(el);
+            });
+        }
+
+        function applyElementTransform(el) {
+            const type = el.dataset.type;
+            if (type !== 'html' && type !== 'video' && type !== 'image') return;
+
+            const pX = parseFloat(el.dataset.panX) || 0;
+            const pY = parseFloat(el.dataset.panY) || 0;
+            const clipScaleX = parseFloat(el.dataset.scaleX) || 1.0;
+            const clipScaleY = parseFloat(el.dataset.scaleY) || 1.0;
+            const rotateDeg = parseFloat(el.dataset.rotation) || 0;
+            const isMirrored = el.dataset.mirror === "true";
+
+            const transProgress = el.dataset.transProgress !== undefined ? parseFloat(el.dataset.transProgress) : 1.0;
+            const activeTransType = el.dataset.activeTransType || 'none';
+            const transDirection = el.dataset.transDirection || 'in';
+
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            if (containerWidth === 0 || containerHeight === 0) return;
+
+            const scale = Math.min(containerWidth / globalWidth, containerHeight / globalHeight);
+
+            let baseWidth = globalWidth;
+            let baseHeight = globalHeight;
+
+            if (type === 'html') {
+                baseWidth = 1920;
+                baseHeight = 1080;
+                try {
+                    const win = el.contentWindow;
+                    const doc = el.contentDocument || win.document;
+                    if (doc) {
+                        const compEl = doc.querySelector('[data-width][data-height]');
+                        if (compEl) {
+                            baseWidth = parseInt(compEl.dataset.width) || 1920;
+                            baseHeight = parseInt(compEl.dataset.height) || 1080;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            // effectiveScale is the ratio of the design space to the container.
+            // For HTML tracks, the design space is always the virtual 1920x1080 canvas.
+            // For video/image, the design space is the actual render resolution.
+            const effectiveScale = Math.min(containerWidth / baseWidth, containerHeight / baseHeight);
+
+            let elScaleX = effectiveScale * clipScaleX;
+            let elScaleY = effectiveScale * clipScaleY;
+            if (type === 'html') {
+                el.style.width = `${baseWidth}px`;
+                el.style.height = `${baseHeight}px`;
+            } else {
+                el.style.width = `${globalWidth}px`;
+                el.style.height = `${globalHeight}px`;
+            }
+
+            // Calculate transition offset/zoom/rotate modifiers.
+            // Offsets are in "design space" units (baseWidth/baseHeight),
+            // and will be converted to screen pixels by effectiveScale below.
+            let transX = 0;
+            let transY = 0;
+            let transScale = 1.0;
+            let transRot = 0;
+
+            if (activeTransType === 'slide-left') {
+                if (transDirection === 'in') {
+                    transX = (1 - transProgress) * baseWidth;
+                } else {
+                    transX = (1 - transProgress) * -baseWidth;
+                }
+            } else if (activeTransType === 'slide-right') {
+                if (transDirection === 'in') {
+                    transX = (1 - transProgress) * -baseWidth;
+                } else {
+                    transX = (1 - transProgress) * baseWidth;
+                }
+            } else if (activeTransType === 'slide-up') {
+                if (transDirection === 'in') {
+                    transY = (1 - transProgress) * baseHeight;
+                } else {
+                    transY = (1 - transProgress) * -baseHeight;
+                }
+            } else if (activeTransType === 'slide-down') {
+                if (transDirection === 'in') {
+                    transY = (1 - transProgress) * -baseHeight;
+                } else {
+                    transY = (1 - transProgress) * baseHeight;
+                }
+            } else if (activeTransType === 'zoom') {
+                transScale = transProgress;
+            } else if (activeTransType === 'rotate') {
+                if (transDirection === 'in') {
+                    transRot = (1 - transProgress) * -180;
+                } else {
+                    transRot = (1 - transProgress) * 180;
+                }
+                transScale = transProgress;
+            }
+
+            let animDx = 0;
+            let animDy = 0;
+            let animRot = 0;
+            let animScale = 1.0;
+            
+            const animToolStr = el.dataset.animateTool;
+            if (animToolStr) {
+                try {
+                    let animations = JSON.parse(animToolStr);
+                    if (animations) {
+                        if (!Array.isArray(animations)) {
+                            animations = [animations];
+                        }
+                        
+                        const start = parseFloat(el.dataset.start);
+                        const duration = parseFloat(el.dataset.duration);
+                        const localTime = currentPlayheadTime - start;
+
+                        let x_curr = 0;
+                        let y_curr = 0;
+                        let rot_curr = 0;
+                        let scale_curr = 1.0;
+
+                        // Helper easing function inside render-host
+                        const getEasingVal = (easing, t) => {
+                            t = Math.max(0, Math.min(1, t));
+                            if (easing === 'sine_in') {
+                                return 1 - Math.cos((t * Math.PI) / 2);
+                            } else if (easing === 'sine_out') {
+                                return Math.sin((t * Math.PI) / 2);
+                            } else if (easing === 'sine_in_out') {
+                                return -(Math.cos(Math.PI * t) - 1) / 2;
+                            } else if (easing === 'elastic') {
+                                const c4 = (2 * Math.PI) / 3;
+                                return t === 0 ? 0 : t === 1 ? 1 : -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
+                            } else if (easing === 'bounce') {
+                                const n1 = 7.5625;
+                                const d1 = 2.75;
+                                if (t < 1 / d1) {
+                                    return n1 * t * t;
+                                } else if (t < 2 / d1) {
+                                    return n1 * (t -= 1.5 / d1) * t + 0.75;
+                                } else if (t < 2.5 / d1) {
+                                    return n1 * (t -= 2.25 / d1) * t + 0.9375;
+                                } else {
+                                    return n1 * (t -= 2.625 / d1) * t + 0.984375;
+                                }
+                            }
+                            return t; // linear
+                        };
+
+                        for (let i = 0; i < animations.length; i++) {
+                            const animTool = animations[i];
+                            const startTime = animTool.start_time !== undefined ? parseFloat(animTool.start_time) : 0.0;
+                            const endTime = animTool.end_time !== undefined ? parseFloat(animTool.end_time) : duration;
+                            
+                            if (localTime >= startTime && localTime <= endTime) {
+                                const T = localTime - startTime;
+                                const durationAnim = endTime - startTime;
+                                const t = durationAnim > 0 ? Math.max(0, Math.min(1, T / durationAnim)) : 1.0;
+                                const easingType = animTool.easing || 'linear';
+
+                                const freq = animTool.periodicity !== undefined ? parseFloat(animTool.periodicity) : 1.0;
+                                const amp = animTool.amplitude !== undefined ? parseFloat(animTool.amplitude) : 0.0;
+                                
+                                // Calculate global eased time progression
+                                const t_eased = getEasingVal(easingType, t);
+                                const theta = 2 * Math.PI * freq * t_eased;
+
+                                if (animTool.type === 'rotate') {
+                                    const itemRot = Math.sin(theta) * amp;
+                                    rot_curr += itemRot;
+
+                                    if (animTool.pivot) {
+                                        const pX_pct = parseFloat(animTool.pivot[0]);
+                                        const pY_pct = parseFloat(animTool.pivot[1]);
+                                        const x_origin = (pX_pct / 100 - 0.5) * baseWidth * (isMirrored ? -1 : 1);
+                                        const y_origin = (pY_pct / 100 - 0.5) * baseHeight;
+                                        
+                                        const radRot = itemRot * Math.PI / 180;
+                                        const cosR = Math.cos(radRot);
+                                        const sinR = Math.sin(radRot);
+                                        
+                                        x_curr += x_origin - (x_origin * cosR - y_origin * sinR);
+                                        y_curr += y_origin - (x_origin * sinR + y_origin * cosR);
+                                    }
+                                } else if (animTool.type === 'scale') {
+                                    const itemScale = 1.0 + Math.sin(theta) * amp;
+                                    scale_curr *= itemScale;
+                                } else if (animTool.type === 'translate') {
+                                    const dirDeg = animTool.direction_angle !== undefined ? parseFloat(animTool.direction_angle) : 90.0;
+                                    const rad = (dirDeg * Math.PI) / 180;
+                                    
+                                    // Linear translate repeats freq times as a sawtooth wave
+                                    let t_cycle = (t_eased * freq) % 1;
+                                    if (t_cycle === 0 && t_eased > 0) {
+                                        t_cycle = 1.0;
+                                    }
+                                    const offset = t_cycle * amp;
+                                    
+                                    x_curr += offset * Math.cos(rad);
+                                    y_curr += offset * Math.sin(rad);
+                                } else if (animTool.type === 'translate_sinusoidal') {
+                                    const dirDeg = animTool.direction_angle !== undefined ? parseFloat(animTool.direction_angle) : 90.0;
+                                    const rad = (dirDeg * Math.PI) / 180;
+                                    const offset = Math.sin(theta) * amp;
+                                    x_curr += offset * Math.cos(rad);
+                                    y_curr += offset * Math.sin(rad);
+                                } else if (animTool.type === 'shake') {
+                                    const offset_x = Math.sin(theta) * Math.cos(theta * 1.5) * amp;
+                                    const offset_y = Math.cos(theta) * Math.sin(theta * 1.2) * amp;
+                                    x_curr += offset_x;
+                                    y_curr += offset_y;
+                                }
+                            }
+                        }
+
+                        const dx_scaled = x_curr * clipScaleX;
+                        const dy_scaled = y_curr * clipScaleY;
+                        
+                        const baseRad = rotateDeg * Math.PI / 180;
+                        const cosB = Math.cos(baseRad);
+                        const sinB = Math.sin(baseRad);
+                        
+                        animDx = dx_scaled * cosB - dy_scaled * sinB;
+                        animDy = dx_scaled * sinB + dy_scaled * cosB;
+                        animRot = rot_curr;
+                        animScale = scale_curr;
+                    }
+                } catch(e) {
+                    console.warn("Error parsing animate_tool metadata:", e);
+                }
+            }
+
+            el.dataset.animDx = animDx;
+            el.dataset.animDy = animDy;
+            el.dataset.animRot = animRot;
+            el.dataset.animScale = animScale;
+
+            el.style.transformOrigin = '50% 50%';
+
+            // panX/panY are in design-space pixels, converted to screen pixels by effectiveScale.
+            const finalPanX = (pX + animDx) * effectiveScale + transX * effectiveScale;
+            const finalPanY = (pY + animDy) * effectiveScale + transY * effectiveScale;
+            const finalScaleX = elScaleX * transScale * animScale * (isMirrored ? -1 : 1);
+            const finalScaleY = elScaleY * transScale * animScale;
+            const finalRot = rotateDeg + animRot + transRot;
+
+            el.style.transform = `translate(calc(-50% + ${finalPanX}px), calc(-50% + ${finalPanY}px)) scale(${finalScaleX}, ${finalScaleY}) rotate(${finalRot}deg)`;
+        }
+
+        window.addEventListener('resize', adjustScaling);
+
+        function createTrackElements() {
+            // Dynamically create asset tracks based on extension type
+            project.tracks.forEach(track => {
+                const src = track.src.toLowerCase();
+                let el;
+                let type = 'html';
+
+                if (src.endsWith('.png') || src.endsWith('.jpg') || src.endsWith('.jpeg') || src.endsWith('.gif')) {
+                    type = 'image';
+                    el = document.createElement('img');
+                } else if (src.endsWith('.mp4') || src.endsWith('.webm')) {
+                    type = 'video';
+                    el = document.createElement('video');
+                    el.muted = true;
+                    el.playsInline = true;
+                    el.preload = 'auto';
+                    el.load(); // Force immediate background preloading & decoding
+                } else if (src.endsWith('.mp3') || src.endsWith('.wav') || src.endsWith('.ogg')) {
+                    type = 'audio';
+                    el = document.createElement('audio');
+                    el.crossOrigin = "anonymous";
+                    el.preload = 'auto';
+                    el.load(); // Force immediate background preloading & decoding
+                } else {
+                    type = 'html';
+                    el = document.createElement('iframe');
+                    el.setAttribute('allow', 'autoplay');
+                }
+
+                el.className = 'clip-element';
+                el.dataset.type = type;
+                el.dataset.trackIndex = track.trackIndex;
+                el.dataset.id = track.id || `clip_${track.trackIndex}_${track.start.toFixed(2)}`;
+                el.dataset.start = track.start;
+                el.dataset.duration = track.duration;
+                el.dataset.sourceStart = track.sourceStart !== undefined ? track.sourceStart : 0.0;
+                el.dataset.fadeIn = track.fadeIn || 0;
+                el.dataset.fadeOut = track.fadeOut || 0;
+                el.dataset.transitionIn = track.transitionIn || (track.fadeIn > 0 ? 'fade' : 'none');
+                el.dataset.transitionOut = track.transitionOut || (track.fadeOut > 0 ? 'fade' : 'none');
+                el.dataset.compressTop = track.compressTop !== undefined ? track.compressTop : 1.0;
+                el.dataset.compressBottom = track.compressBottom !== undefined ? track.compressBottom : 0.0;
+                el.dataset.panX = track.panX !== undefined ? track.panX : 0;
+                el.dataset.panY = track.panY !== undefined ? track.panY : 0;
+                el.dataset.scale = track.scale !== undefined ? track.scale : 1.0;
+                el.dataset.scaleX = track.scaleX !== undefined ? track.scaleX : (track.scale !== undefined ? track.scale : 1.0);
+                el.dataset.scaleY = track.scaleY !== undefined ? track.scaleY : (track.scale !== undefined ? track.scale : 1.0);
+                el.dataset.rotation = track.rotation !== undefined ? track.rotation : 0;
+                el.dataset.opacity = track.opacity !== undefined ? track.opacity : 1.0;
+                el.dataset.mirror = track.mirror ? "true" : "false";
+                if (track.animate_tool) {
+                    el.dataset.animateTool = JSON.stringify(track.animate_tool);
+                }
+                
+                el.style.position = 'absolute';
+                el.style.zIndex = 100 - parseInt(track.trackIndex || 0);
+                el.style.border = 'none';
+                el.style.background = 'transparent';
+                el.style.display = 'none';
+
+                if (type === 'html' || type === 'video' || type === 'image') {
+                    el.style.left = '50%';
+                    el.style.top = '50%';
+                    el.style.transformOrigin = 'center center';
+                } else {
+                    el.style.top = '0';
+                    el.style.left = '0';
+                    el.style.width = '100%';
+                    el.style.height = '100%';
+                }
+
+                if (type === 'html') {
+                    el.addEventListener('load', () => {
+                        el.dataset.loaded = "true";
+                        try {
+                            const win = el.contentWindow;
+                            if (win) {
+                                setupRAFInterception(win);
+                            }
+                            const doc = el.contentDocument || win.document;
+                            if (doc) {
+                                try {
+                                    win.addEventListener('keydown', (e) => {
+                                        if (e.code === 'Space') {
+                                            const active = doc.activeElement;
+                                            if (active && (
+                                                active.tagName === 'TEXTAREA' || 
+                                                active.tagName === 'SELECT' || 
+                                                (active.tagName === 'INPUT' && (active.type === 'text' || active.type === 'number' || active.type === 'password' || active.type === 'email'))
+                                            )) {
+                                                return;
+                                            }
+                                            e.preventDefault();
+                                            let p = win.parent;
+                                            while (p) {
+                                                if (typeof p.togglePlay === 'function') {
+                                                    p.togglePlay();
+                                                    break;
+                                                }
+                                                if (p === p.parent) break;
+                                                p = p.parent;
+                                            }
+                                        }
+                                    });
+                                } catch (err) {}
+
+                                // Check if the document contains a template at the root
+                                const template = doc.querySelector('template');
+                                if (template) {
+                                    console.log("Detected HyperFrames template. Activating template content...");
+                                    el.dataset.isScriptReady = "false";
+                                    const content = template.content;
+                                    doc.body.innerHTML = '';
+                                    
+                                    const fragment = content.cloneNode(true);
+                                    const scripts = Array.from(fragment.querySelectorAll('script'));
+                                    scripts.forEach(s => {
+                                        if (s.parentNode) s.parentNode.removeChild(s);
+                                    });
+                                    doc.body.appendChild(fragment);
+
+                                    // Configure styling for template layouts
+                                    doc.body.style.width = '100%';
+                                    doc.body.style.height = '100%';
+                                    doc.body.style.overflow = 'hidden';
+                                    doc.body.style.margin = '0';
+                                    doc.body.style.position = 'relative';
+
+                                    // Find and run scripts sequentially to avoid race conditions (e.g. GSAP undefined)
+                                    async function loadScriptsSequentially(idx) {
+                                        if (idx >= scripts.length) {
+                                            // Auto-bypass gates once script loading is complete
+                                            const gate = doc.getElementById('gate-overlay') || doc.getElementById('audio-gate');
+                                            if (gate) gate.click();
+                                            adjustScaling();
+                                            el.dataset.isScriptReady = "true";
+                                            return;
+                                        }
+                                        const oldS = scripts[idx];
+                                        const newS = doc.createElement('script');
+                                        if (oldS.parentNode) oldS.parentNode.removeChild(oldS);
+                                        
+                                        if (oldS.src) {
+                                            newS.src = oldS.src;
+                                            newS.onload = () => loadScriptsSequentially(idx + 1);
+                                            newS.onerror = () => loadScriptsSequentially(idx + 1);
+                                            doc.body.appendChild(newS);
+                                        } else {
+                                            newS.text = oldS.textContent;
+                                            doc.body.appendChild(newS);
+                                            await loadScriptsSequentially(idx + 1);
+                                        }
+                                    }
+                                    loadScriptsSequentially(0);
+                                } else {
+                                    const gate = doc.getElementById('gate-overlay') || doc.getElementById('audio-gate');
+                                    if (gate) {
+                                        gate.click();
+                                    }
+                                    el.dataset.isScriptReady = "true";
+                                }
+                            }
+                            
+                            adjustScaling();
+
+                            // Seek loaded html iframe to its relative playhead position on load
+                            const start = parseFloat(el.dataset.start);
+                            const duration = parseFloat(el.dataset.duration);
+                            const sourceStart = parseFloat(el.dataset.sourceStart || 0);
+                            const localTime = currentPlayheadTime - start;
+                            const playbackTime = localTime + sourceStart;
+                            if (localTime >= 0 && localTime <= duration) {
+                                if (typeof win.seekTo === 'function') {
+                                    win.seekTo(playbackTime, true);
+                                }
+                            }
+
+                            if (isCurrentlyPlaying && el.style.display === 'block') {
+                                if (typeof win.playSceneAudio === 'function') win.playSceneAudio();
+                                if (win.audioCtx && win.audioCtx !== audioCtx && typeof win.audioCtx.resume === 'function') {
+                                    win.audioCtx.resume();
+                                }
+                            } else {
+                                if (typeof win.pauseSceneAudio === 'function') win.pauseSceneAudio();
+                                if (win.audioCtx && win.audioCtx !== audioCtx && typeof win.audioCtx.suspend === 'function') {
+                                    win.audioCtx.suspend();
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Could not auto-bypass audio-gate on load:", e);
+                        }
+                    });
+                    el.addEventListener('error', () => {
+                        el.dataset.loaded = "true";
+                    });
+                }
+
+                container.appendChild(el);
+                trackElements.push(el);
+
+                if (type === 'video' || type === 'audio') {
+                    try {
+                        if (typeof getAudioNodes === 'function') {
+                            getAudioNodes(el);
+                        }
+                    } catch (e) {
+                        console.warn("Failed to pre-warm audio nodes for clip:", e);
+                    }
+                }
+
+                if (type === 'html') {
+                    if (track.src.startsWith('/render-host.html') || track.src.startsWith('project:')) {
+                        el.src = track.src;
+                    } else {
+                        // Fetch and inject RAF override immediately to support background rendering before script execution
+                        (async () => {
+                            try {
+                                let fetchFn = window.fetch;
+                                try {
+                                    if (window.top && typeof window.top.fetch === 'function') {
+                                        fetchFn = window.top.fetch;
+                                    }
+                                } catch(originErr) {}
+                                const response = await fetchFn(track.src);
+                                if (response.ok) {
+                                    let html = await response.text();
+                                    const baseDir = track.src.substring(0, track.src.lastIndexOf('/') + 1);
+                                    const injection = `
+<base href="${baseDir}">
+<script>
+    (function() {
+        const isParentAccessible = () => {
+            try { return !!(window.parent && window.parent.location && window.parent.location.href); }
+            catch(e) { return false; }
+        };
+        const originalRAF = window.requestAnimationFrame;
+        window.requestAnimationFrame = function(cb) {
+            if (isParentAccessible() && window.parent && typeof window.parent.isRenderingActive === 'function' && window.parent.isRenderingActive()) {
+                window._capturedRAFCallback = cb;
+                return 0;
+            } else {
+                return originalRAF(cb);
+            }
+        };
+        window.requestAnimationFrame.triggerDraw = function(timestamp) {
+            if (window._capturedRAFCallback) {
+                const cb = window._capturedRAFCallback;
+                window._capturedRAFCallback = null;
+                try {
+                    cb(timestamp || performance.now());
+                } catch(e) {
+                    console.error("Error in captured RAF callback:", e);
+                }
+            }
+        };
+    })();
+<\/script>
+                                    `;
+                                    if (html.includes('<head>')) {
+                                        html = html.replace('<head>', '<head>' + injection);
+                                    } else if (html.includes('<html>')) {
+                                        html = html.replace('<html>', '<html>' + injection);
+                                    } else {
+                                        html = injection + html;
+                                    }
+                                    el.srcdoc = html;
+                                } else {
+                                    el.src = track.src;
+                                }
+                            } catch (err) {
+                                console.error("Failed to fetch/inject composition:", err);
+                                el.src = track.src;
+                            }
+                        })();
+                    }
+                } else {
+                    el.src = track.src;
+                }
+            });
+        }
+
+        let isInitialized = false;
+
+        function loadSubprojectsAndInit() {
+            project.tracks.forEach((track) => {
+                if (track.src && track.src.startsWith('project:')) {
+                    const subProjectName = track.src.substring(8);
+                    track._originalSrc = track.src;
+                    
+                    let subprojParams = '';
+                    if (track.subprojDefaultTransition && track.subprojDefaultTransition !== 'none') {
+                        subprojParams += `&subproj_default_transition=${encodeURIComponent(track.subprojDefaultTransition)}`;
+                        subprojParams += `&subproj_transition_duration=${track.subprojTransitionDuration !== undefined ? track.subprojTransitionDuration : 0.5}`;
+                        subprojParams += `&subproj_transition_override=${track.subprojTransitionOverride || 'empty'}`;
+                    }
+                    
+                    track.src = `/render-host.html?project_name=${encodeURIComponent(subProjectName)}&width=${globalWidth}&height=${globalHeight}&duration=${track.duration}${subprojParams}`;
+                }
+            });
+
+            createTrackElements();
+            isInitialized = true;
+            adjustScaling();
+            seekTo(currentPlayheadTime, true);
+        }
+
+        async function loadMainProjectAndSubprojects() {
+            // 1. Try to read directly from parent editor window in-memory if we are the main preview iframe
+            try {
+                if (window.isParentAccessible() && window.parent && window.parent.project && window.parent.previewIframe && window.parent.previewIframe.contentWindow === window) {
+                    project = JSON.parse(JSON.stringify(window.parent.project));
+                    window.project = project;
+                }
+            } catch (e) {
+                console.warn("Could not read project state from parent editor window in-memory:", e);
+            }
+
+            // 2. Fall back to Base64 parameter or fetch if not already loaded in-memory
+            if (!project.tracks || project.tracks.length === 0) {
+                if (projectBase64) {
+                    try {
+                        project = JSON.parse(decodeURIComponent(escape(atob(projectBase64))));
+                        window.project = project;
+                    } catch (e) {
+                        console.error("Failed to parse project Base64 parameters:", e);
+                    }
+                } else if (projectName) {
+                    try {
+                        let fetchFn = window.fetch;
+                        try {
+                            if (window.isTopAccessible() && window.top && typeof window.top.fetch === 'function') {
+                                fetchFn = window.top.fetch;
+                            }
+                        } catch(originErr) {}
+                        
+                        const res = await fetchFn(`/api/project/state?project=${encodeURIComponent(projectName)}`);
+                        if (res.ok) {
+                            project = await res.json();
+                            window.project = project;
+                        } else {
+                            console.error(`Failed to fetch project state for ${projectName}`);
+                        }
+                    } catch (e) {
+                         console.error(`Error fetching project state for ${projectName}:`, e);
+                    }
+                }
+            }
+            
+            if (project) {
+                if (project.masterCompressTop === undefined) project.masterCompressTop = 1.0;
+                if (project.masterCompressBottom === undefined) project.masterCompressBottom = 0.0;
+                window.project = project;
+                if (typeof window.updateMasterCompressorAndLimiter === 'function') {
+                    window.updateMasterCompressorAndLimiter();
+                }
+            }
+            
+            // Apply default transitions to tracks if specified by parent
+            if (subprojDefaultTransition && subprojDefaultTransition !== 'none') {
+                project.tracks.forEach((t) => {
+                    const isVisual = !t.src.toLowerCase().endsWith('.mp3') && !t.src.toLowerCase().endsWith('.wav') && !t.src.toLowerCase().endsWith('.ogg');
+                    if (isVisual) {
+                        if (subprojTransitionOverride === 'all') {
+                            t.transitionIn = subprojDefaultTransition;
+                            t.fadeIn = subprojTransitionDuration;
+                            t.transitionOut = subprojDefaultTransition;
+                            t.fadeOut = subprojTransitionDuration;
+                        } else {
+                            if (!t.transitionIn || t.transitionIn === 'none') {
+                                t.transitionIn = subprojDefaultTransition;
+                                t.fadeIn = subprojTransitionDuration;
+                            }
+                            if (!t.transitionOut || t.transitionOut === 'none') {
+                                t.transitionOut = subprojDefaultTransition;
+                                t.fadeOut = subprojTransitionDuration;
+                            }
+                        }
+                    }
+                });
+            }
+            
+            loadSubprojectsAndInit();
+        }
+
+        loadMainProjectAndSubprojects();
+        
+        let playbackTimer = null;
+        let lastPlaybackTime = 0;
+        function startPlaybackTimer() {
+            if (playbackTimer) clearInterval(playbackTimer);
+            lastPlaybackTime = performance.now();
+            playbackTimer = setInterval(() => {
+                if (!isCurrentlyPlaying) {
+                    clearInterval(playbackTimer);
+                    playbackTimer = null;
+                    return;
+                }
+                const now = performance.now();
+                const delta = (now - lastPlaybackTime) / 1000;
+                lastPlaybackTime = now;
+                seekTo(currentPlayheadTime + delta);
+            }, 1000 / 30); // 30 FPS tick
+        }
+
+        // Global playback status syncing
+        window.setPlaybackState = function(isPlaying) {
+            isCurrentlyPlaying = isPlaying;
+            const MASTER_VOLUME = 0.89;
+            const fadeTime = 0.015; // 15ms fade
+            
+            if (isPlaying) {
+                initAudioContext();
+                
+                const startPlay = () => {
+                    // Perform seek reset (like a jump seek) to align all elements
+                    seekTo(currentPlayheadTime, true);
+                    
+                    if (window === window.top) {
+                        startPlaybackTimer();
+                    }
+                };
+
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume().then(startPlay).catch(e => {
+                        console.warn("Failed to resume audioCtx:", e);
+                        startPlay();
+                    });
+                } else {
+                    startPlay();
+                }
+            } else {
+                if (playbackTimer) {
+                    clearInterval(playbackTimer);
+                    playbackTimer = null;
+                }
+                
+                if (audioCtx && masterLimiter) {
+                    const now = audioCtx.currentTime;
+                    masterLimiter.gain.cancelScheduledValues(now);
+                    masterLimiter.gain.setValueAtTime(masterLimiter.gain.value, now);
+                    masterLimiter.gain.linearRampToValueAtTime(0, now + fadeTime);
+                    
+                    // Delay actual element pause by fadeTime to let audio fade out smoothly
+                    setTimeout(() => {
+                        if (!isCurrentlyPlaying) {
+                            triggerPlaybackElements(false);
+                        }
+                    }, fadeTime * 1000);
+                } else {
+                    triggerPlaybackElements(false);
+                }
+            }
+        };
+
+        function triggerPlaybackElements(playState) {
+            trackElements.forEach(el => {
+                const type = el.dataset.type;
+                try {
+                    if (type === 'html') {
+                        const win = el.contentWindow;
+                        if (win) {
+                            if (typeof win.setPlaybackState === 'function') {
+                                win.setPlaybackState(playState && el.style.display === 'block');
+                            }
+                            if (playState && el.style.display === 'block') {
+                                if (typeof win.playSceneAudio === 'function') {
+                                    win.playSceneAudio();
+                                }
+                                if (win.audioCtx && win.audioCtx !== audioCtx && typeof win.audioCtx.resume === 'function') {
+                                    win.audioCtx.resume();
+                                }
+                            } else {
+                                if (typeof win.pauseSceneAudio === 'function') {
+                                    win.pauseSceneAudio();
+                                }
+                                if (win.audioCtx && win.audioCtx !== audioCtx && typeof win.audioCtx.suspend === 'function') {
+                                    win.audioCtx.suspend();
+                                }
+                            }
+                        }
+                    } else if (type === 'video' || type === 'audio') {
+                        if (playState && el.style.display === 'block') {
+                            el.play().catch(()=>{});
+                        } else {
+                            el.pause();
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Playback status propagation failure:", e);
+                }
+            });
+        }
+
+        let lastMuteUpdateTime = performance.now();
+
+        // Global seek API
+        function seekTo(time, isJump = false) {
+            if (typeof initAudioContext === 'function') {
+                initAudioContext();
+            }
+            if (window.audioCtx && window.audioCtx.state === 'suspended') {
+                window.audioCtx.resume().catch(() => {});
+            }
+            if (typeof window.updateMasterCompressorAndLimiter === 'function') {
+                window.updateMasterCompressorAndLimiter();
+            }
+            currentPlayheadTime = time;
+            const MASTER_VOLUME = 0.89;
+            const fadeTime = 0.015; // 15ms fade out
+            let anyShown = false;
+
+            const now = performance.now();
+            const timeDeltaMs = now - lastMuteUpdateTime;
+            lastMuteUpdateTime = now;
+
+            const performSeek = (targetTime) => {
+                let anyElementShown = false;
+                trackElements.forEach(el => {
+                    const start = parseFloat(el.dataset.start);
+                    const duration = parseFloat(el.dataset.duration);
+                    const sourceStart = parseFloat(el.dataset.sourceStart || 0);
+                    const localTime = targetTime - start;
+                    const playbackTime = localTime + sourceStart;
+                    const type = el.dataset.type;
+                    const trackIndex = parseInt(el.dataset.trackIndex || 0);
+
+                    // Mute fading calculation
+                    const isMuted = project.trackConfigs && project.trackConfigs[trackIndex] && project.trackConfigs[trackIndex].muted;
+                    const targetMuteVal = isMuted ? 0.0 : 1.0;
+                    
+                    if (!isCurrentlyPlaying || isJump || (typeof isRenderingActive === 'function' && isRenderingActive())) {
+                        el.muteVal = targetMuteVal;
+                    } else {
+                        let currentMuteVal = el.muteVal !== undefined ? el.muteVal : (isMuted ? 0.0 : 1.0);
+                        const step = timeDeltaMs / 150; // 150ms fade
+                        if (currentMuteVal < targetMuteVal) {
+                            currentMuteVal = Math.min(targetMuteVal, currentMuteVal + step);
+                        } else if (currentMuteVal > targetMuteVal) {
+                            currentMuteVal = Math.max(targetMuteVal, currentMuteVal - step);
+                        }
+                        el.muteVal = currentMuteVal;
+                    }
+                    const muteMultiplier = el.muteVal;
+                    const trackVol = (project.trackConfigs && project.trackConfigs[trackIndex] && project.trackConfigs[trackIndex].volume !== undefined) 
+                        ? parseFloat(project.trackConfigs[trackIndex].volume) 
+                        : 1.0;
+
+                    if (localTime >= 0 && localTime <= duration) {
+                        const wasHidden = el.style.display === 'none';
+                        if (wasHidden) {
+                            el.style.display = 'block';
+                            anyElementShown = true;
+                        }
+                        
+                        // Calculate transition type, progress, and direction
+                        const fadeIn = parseFloat(el.dataset.fadeIn) || 0;
+                        const fadeOut = parseFloat(el.dataset.fadeOut) || 0;
+                        const transInType = el.dataset.transitionIn || 'none';
+                        const transOutType = el.dataset.transitionOut || 'none';
+                        const baseOpacity = el.dataset.opacity !== undefined ? parseFloat(el.dataset.opacity) : 1.0;
+                        
+                        let transProgress = 1.0;
+                        let activeTransType = 'none';
+                        let transDirection = 'in';
+                        
+                        if (fadeIn > 0 && localTime < fadeIn) {
+                            transProgress = localTime / fadeIn;
+                            activeTransType = transInType;
+                            transDirection = 'in';
+                        } else if (fadeOut > 0 && (duration - localTime) < fadeOut) {
+                            transProgress = (duration - localTime) / fadeOut;
+                            activeTransType = transOutType;
+                            transDirection = 'out';
+                        }
+                        
+                        el.dataset.transProgress = transProgress;
+                        el.dataset.activeTransType = activeTransType;
+                        el.dataset.transDirection = transDirection;
+                        
+                        applyElementTransform(el);
+                        
+                        let opacity = baseOpacity;
+                        if (activeTransType !== 'none') {
+                            opacity = transProgress * baseOpacity;
+                        }
+
+                        if (type !== 'audio') {
+                            const finalOpacity = opacity * muteMultiplier;
+                            const opacityStr = finalOpacity.toFixed(3);
+                            if (el.style.opacity !== opacityStr) {
+                                  el.style.opacity = opacityStr;
+                            }
+                        } else {
+                            let envelopeVol = 1.0;
+                            if (el.dataset.volumePoints) {
+                                if (el.lastVolumePointsStr !== el.dataset.volumePoints) {
+                                    el.lastVolumePointsStr = el.dataset.volumePoints;
+                                    try {
+                                        el.volumePointsCache = JSON.parse(el.dataset.volumePoints);
+                                    } catch(e) {
+                                        el.volumePointsCache = null;
+                                    }
+                                }
+                                if (el.volumePointsCache && el.volumePointsCache.length > 0) {
+                                    const sourceStart = parseFloat(el.dataset.sourceStart || 0.0);
+                                    envelopeVol = getEnvelopeVolume(el.volumePointsCache, localTime + sourceStart, duration);
+                                }
+                            }
+                            
+                            const targetVol = Math.max(0.0, Math.min(1.0, opacity * muteMultiplier * envelopeVol * trackVol));
+                            if (el.volume !== targetVol) {
+                                el.volume = targetVol;
+                            }
+                            
+                            // Live update compressor & gain values to smoothly fade and avoid pops
+                            const nodes = getAudioNodes(el);
+                            if (nodes && audioCtx) {
+                                const cTop = parseFloat(el.dataset.compressTop) ?? 1.0;
+                                const cBot = parseFloat(el.dataset.compressBottom) ?? 0.0;
+                                
+                                const compAmount = Math.max(0, Math.min(0.9, (1.0 - cTop) + cBot));
+                                const thresholdVal = -50 * compAmount;
+                                const ratioVal = 1 + 19 * compAmount;
+                                
+                                const targetGain = cTop * (1.0 + 4.0 * cBot);
+                                const autoMakeup = getAutoMakeupGain(thresholdVal, ratioVal);
+                                const postGainVal = (targetGain / autoMakeup) * muteMultiplier * trackVol;
+                                
+                                if (nodes.lastThreshold !== thresholdVal) {
+                                    nodes.compressor.threshold.setValueAtTime(thresholdVal, audioCtx.currentTime);
+                                    nodes.lastThreshold = thresholdVal;
+                                }
+                                if (nodes.lastRatio !== ratioVal) {
+                                    nodes.compressor.ratio.setValueAtTime(ratioVal, audioCtx.currentTime);
+                                    nodes.lastRatio = ratioVal;
+                                }
+                                if (nodes.lastPostGain !== postGainVal) {
+                                    const nowTime = audioCtx.currentTime;
+                                    nodes.postGain.gain.cancelScheduledValues(nowTime);
+                                    nodes.postGain.gain.setValueAtTime(nodes.postGain.gain.value, nowTime);
+                                    nodes.postGain.gain.linearRampToValueAtTime(postGainVal, nowTime + 0.015);
+                                    nodes.lastPostGain = postGainVal;
+                                }
+                            }
+                        }
+
+                        try {
+                            if (type === 'html') {
+                                const win = el.contentWindow;
+                                
+                                // Only perform expensive cross-iframe DOM query once when the clip becomes visible
+                                if (wasHidden) {
+                                    const doc = el.contentDocument || win.document;
+                                    if (doc) {
+                                        const gate = doc.getElementById('gate-overlay') || doc.getElementById('audio-gate');
+                                        if (gate && gate.style.display !== 'none') {
+                                            gate.style.display = 'none';
+                                        }
+                                    }
+                                }
+                                
+                                if (typeof win.seekTo === 'function') {
+                                    if (win.seekTo(playbackTime, isJump)) {
+                                        anyElementShown = true;
+                                    }
+                                } else if (typeof win.seekLivingScene === 'function') {
+                                    win.seekLivingScene(playbackTime);
+                                } else if (win.__timelines) {
+                                    const originalDuration = duration + sourceStart;
+                                    for (let key in win.__timelines) {
+                                        const tl = win.__timelines[key];
+                                        tl.progress(playbackTime / (originalDuration || 1));
+                                    }
+                                }
+
+                                if (isRenderingActive() && win.requestAnimationFrame && typeof win.requestAnimationFrame.triggerDraw === 'function') {
+                                    win.requestAnimationFrame.triggerDraw(playbackTime * 1000);
+                                }
+
+                                if (wasHidden || isJump) {
+                                    if (typeof win.setPlaybackState === 'function') {
+                                        win.setPlaybackState(isCurrentlyPlaying);
+                                    }
+                                    if (isCurrentlyPlaying && el.style.display === 'block') {
+                                        if (typeof win.playSceneAudio === 'function') win.playSceneAudio();
+                                        if (win.audioCtx && win.audioCtx !== audioCtx && typeof win.audioCtx.resume === 'function') {
+                                            win.audioCtx.resume();
+                                        }
+                                    } else {
+                                        if (typeof win.pauseSceneAudio === 'function') win.pauseSceneAudio();
+                                        if (win.audioCtx && win.audioCtx !== audioCtx && typeof win.audioCtx.suspend === 'function') {
+                                            win.audioCtx.suspend();
+                                        }
+                                    }
+                                }
+
+                                // Update subproject clip audio nodes and volume/envelope properties dynamically
+                                const nodes = getAudioNodes(el);
+                                if (nodes && audioCtx) {
+                                    const cTop = parseFloat(el.dataset.compressTop) ?? 1.0;
+                                    const cBot = parseFloat(el.dataset.compressBottom) ?? 0.0;
+                                    
+                                    const compAmount = Math.max(0, Math.min(0.9, (1.0 - cTop) + cBot));
+                                    const thresholdVal = -50 * compAmount;
+                                    const ratioVal = 1 + 19 * compAmount;
+                                    
+                                    const targetGain = cTop * (1.0 + 4.0 * cBot);
+                                    const autoMakeup = getAutoMakeupGain(thresholdVal, ratioVal);
+                                    
+                                    let envelopeVol = 1.0;
+                                    if (el.dataset.volumePoints) {
+                                        if (el.lastVolumePointsStr !== el.dataset.volumePoints) {
+                                            el.lastVolumePointsStr = el.dataset.volumePoints;
+                                            try {
+                                                el.volumePointsCache = JSON.parse(el.dataset.volumePoints);
+                                            } catch(e) {
+                                                el.volumePointsCache = null;
+                                            }
+                                        }
+                                        if (el.volumePointsCache && el.volumePointsCache.length > 0) {
+                                            const sourceStart = parseFloat(el.dataset.sourceStart || 0.0);
+                                            envelopeVol = getEnvelopeVolume(el.volumePointsCache, localTime + sourceStart, duration);
+                                        }
+                                    }
+                                    
+                                    const postGainVal = (targetGain / autoMakeup) * muteMultiplier * trackVol * opacity * envelopeVol;
+                                    
+                                    if (nodes.lastThreshold !== thresholdVal) {
+                                        nodes.compressor.threshold.setValueAtTime(thresholdVal, audioCtx.currentTime);
+                                        nodes.lastThreshold = thresholdVal;
+                                    }
+                                    if (nodes.lastRatio !== ratioVal) {
+                                        nodes.compressor.ratio.setValueAtTime(ratioVal, audioCtx.currentTime);
+                                        nodes.lastRatio = ratioVal;
+                                    }
+                                    if (nodes.lastPostGain !== postGainVal) {
+                                        const nowTime = audioCtx.currentTime;
+                                        nodes.postGain.gain.cancelScheduledValues(nowTime);
+                                        nodes.postGain.gain.setValueAtTime(nodes.postGain.gain.value, nowTime);
+                                        nodes.postGain.gain.linearRampToValueAtTime(postGainVal, nowTime + 0.015);
+                                        nodes.lastPostGain = postGainVal;
+                                    }
+                                    
+                                    if (win && win.subprojectDestinationNode !== nodes.boostGain) {
+                                        win.subprojectDestinationNode = nodes.boostGain;
+                                        if (typeof win.reconnectSubprojectAudio === 'function') {
+                                            win.reconnectSubprojectAudio(nodes.boostGain);
+                                        }
+                                    }
+                                }
+                            } else if (type === 'video' || type === 'audio') {
+                                const timeDiff = Math.abs(el.currentTime - playbackTime);
+                                if (wasHidden || !isCurrentlyPlaying || timeDiff > 0.3) {
+                                    el.currentTime = playbackTime;
+                                }
+                                if (isCurrentlyPlaying) {
+                                    if (el.paused) {
+                                        el.play().catch(()=>{});
+                                    }
+                                } else {
+                                    if (!el.paused) {
+                                        el.pause();
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Element seek communication issue:", e);
+                        }
+                    } else {
+                        const wasVisible = el.style.display === 'block';
+                        if (el.style.display !== 'none') {
+                            el.style.display = 'none';
+                        }
+                        if (wasVisible) {
+                            try {
+                                if (type === 'html') {
+                                    const win = el.contentWindow;
+                                    if (win) {
+                                        if (typeof win.pauseSceneAudio === 'function') win.pauseSceneAudio();
+                                        if (win.audioCtx && win.audioCtx !== audioCtx && typeof win.audioCtx.suspend === 'function') {
+                                            win.audioCtx.suspend();
+                                        }
+                                    }
+                                } else if (type === 'video' || type === 'audio') {
+                                    el.pause();
+                                }
+                            } catch (e) {}
+                        }
+                        
+                        // Silence audio nodes if present when element is disabled
+                        const nodes = audioNodesMap.get(el);
+                        if (nodes && audioCtx) {
+                            if (nodes.lastPostGain !== 0.0) {
+                                const nowTime = audioCtx.currentTime;
+                                nodes.postGain.gain.cancelScheduledValues(nowTime);
+                                nodes.postGain.gain.setValueAtTime(nodes.postGain.gain.value, nowTime);
+                                nodes.postGain.gain.linearRampToValueAtTime(0.0, nowTime + 0.008);
+                                nodes.lastPostGain = 0.0;
+                            }
+                        }
+                    }
+                });
+                return anyElementShown;
+            };
+
+            // Fading logic for jumps during playback to avoid pops/clicks
+            if (isJump && isCurrentlyPlaying && audioCtx && masterLimiter) {
+                const now = audioCtx.currentTime;
+                masterLimiter.gain.cancelScheduledValues(now);
+                masterLimiter.gain.setValueAtTime(masterLimiter.gain.value, now);
+                masterLimiter.gain.linearRampToValueAtTime(0, now + fadeTime);
+                
+                setTimeout(() => {
+                    performSeek(time);
+                    const nowAfter = audioCtx.currentTime;
+                    masterLimiter.gain.cancelScheduledValues(nowAfter);
+                    masterLimiter.gain.setValueAtTime(0, nowAfter);
+                    masterLimiter.gain.linearRampToValueAtTime(MASTER_VOLUME, nowAfter + 0.035);
+                    if (typeof updateShieldAndOutline === 'function') {
+                        updateShieldAndOutline();
+                    }
+                }, fadeTime * 1000);
+            } else {
+                anyShown = performSeek(time);
+                if (typeof updateShieldAndOutline === 'function') {
+                    updateShieldAndOutline();
+                }
+            }
+            return anyShown;
+        }
+        window.seekTo = seekTo;
+
+        window.updateTrackMuteState = function(trackIndex, isMuted) {
+            if (!project.trackConfigs) project.trackConfigs = [];
+            while (project.trackConfigs.length <= trackIndex) {
+                project.trackConfigs.push({ name: `Track ${project.trackConfigs.length + 1}` });
+            }
+            project.trackConfigs[trackIndex].muted = isMuted;
+        };
+
+        window.updateTrackVolumes = function(volumes) {
+            if (!project.trackConfigs) project.trackConfigs = [];
+            while (project.trackConfigs.length < volumes.length) {
+                project.trackConfigs.push({ name: `Track ${project.trackConfigs.length + 1}`, volume: 1.0 });
+            }
+            volumes.forEach((vol, idx) => {
+                if (project.trackConfigs[idx]) {
+                    project.trackConfigs[idx].volume = vol;
+                }
+            });
+            
+            document.querySelectorAll('audio, video').forEach(el => {
+                const trackIdx = parseInt(el.dataset.trackIndex || 0);
+                const trackVol = volumes[trackIdx] !== undefined ? volumes[trackIdx] : 1.0;
+                const isMuted = project.trackConfigs[trackIdx] && project.trackConfigs[trackIdx].muted;
+                const muteMultiplier = isMuted ? 0.0 : 1.0;
+                
+                const nodes = audioNodesMap.get(el);
+                if (nodes && audioCtx) {
+                    const cTop = parseFloat(el.dataset.compressTop) ?? 1.0;
+                    const cBot = parseFloat(el.dataset.compressBottom) ?? 0.0;
+                    
+                    const compAmount = Math.max(0, Math.min(0.9, (1.0 - cTop) + cBot));
+                    const thresholdVal = -50 * compAmount;
+                    const ratioVal = 1 + 19 * compAmount;
+                    
+                    const targetGain = cTop * (1.0 + 4.0 * cBot);
+                    const autoMakeup = getAutoMakeupGain(thresholdVal, ratioVal);
+                    const postGainVal = (targetGain / autoMakeup) * muteMultiplier * trackVol;
+                    
+                    if (nodes.lastPostGain !== postGainVal) {
+                        nodes.postGain.gain.setValueAtTime(postGainVal, audioCtx.currentTime);
+                        nodes.lastPostGain = postGainVal;
+                    }
+                } else {
+                    const opacity = parseFloat(el.dataset.opacity) ?? 1.0;
+                    const targetVol = Math.max(0.0, Math.min(1.0, opacity * muteMultiplier * trackVol));
+                    if (el.volume !== targetVol) {
+                        el.volume = targetVol;
+                    }
+                }
+            });
+        };
+
+        // WAV encoder helper
+        function bufferToWav(buffer) {
+            const numOfChan = buffer.numberOfChannels;
+            const sampleRate = buffer.sampleRate;
+            const pcmLength = buffer.length * numOfChan * 2;
+            const headerBuffer = new ArrayBuffer(44);
+            const view = new DataView(headerBuffer);
+            
+            function writeString(view, offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            }
+            
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + pcmLength, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numOfChan, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numOfChan * 2, true);
+            view.setUint16(32, numOfChan * 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, pcmLength, true);
+            
+            const channels = [];
+            for (let i = 0; i < numOfChan; i++) {
+                channels.push(buffer.getChannelData(i));
+            }
+            
+            const pcmData = new Int16Array(buffer.length * numOfChan);
+            let pcmPos = 0;
+            const channel0 = channels[0];
+            const channel1 = channels[1] || channel0;
+            
+            if (numOfChan === 2) {
+                for (let i = 0; i < buffer.length; i++) {
+                    let s0 = channel0[i];
+                    s0 = s0 < 0 ? s0 * 0x8000 : s0 * 0x7FFF;
+                    pcmData[pcmPos++] = s0 < -32768 ? -32768 : (s0 > 32767 ? 32767 : s0);
+                    
+                    let s1 = channel1[i];
+                    s1 = s1 < 0 ? s1 * 0x8000 : s1 * 0x7FFF;
+                    pcmData[pcmPos++] = s1 < -32768 ? -32768 : (s1 > 32767 ? 32767 : s1);
+                }
+            } else {
+                for (let i = 0; i < buffer.length; i++) {
+                    let s0 = channel0[i];
+                    s0 = s0 < 0 ? s0 * 0x8000 : s0 * 0x7FFF;
+                    pcmData[pcmPos++] = s0 < -32768 ? -32768 : (s0 > 32767 ? 32767 : s0);
+                }
+            }
+            
+            const wavBuffer = new ArrayBuffer(44 + pcmLength);
+            const wavView = new Uint8Array(wavBuffer);
+            wavView.set(new Uint8Array(headerBuffer), 0);
+            wavView.set(new Uint8Array(pcmData.buffer), 44);
+            
+            return wavBuffer;
+        }
+
+        // Global offline audio rendering API
+        window.renderAudioOffline = async function(arg1, arg2, arg3, arg4, returnBuffer) {
+            let isSubproject = false;
+            let offlineCtx;
+            let startOffset = 0;
+            let duration = 0;
+            let destinationNode;
+
+            if (arg1 && typeof arg1.createGain === 'function') {
+                isSubproject = true;
+                offlineCtx = arg1;
+                startOffset = arg2;
+                duration = arg3;
+                destinationNode = arg4;
+            } else {
+                duration = arg1;
+                const sampleRate = 44100;
+                offlineCtx = new OfflineAudioContext(2, sampleRate * duration, sampleRate);
+                
+                const offlineMasterCompressor = offlineCtx.createDynamicsCompressor();
+                const offlineMasterLimiter = offlineCtx.createGain();
+                
+                const cTop = project.masterCompressTop !== undefined ? project.masterCompressTop : 1.0;
+                const cBot = project.masterCompressBottom !== undefined ? project.masterCompressBottom : 0.0;
+                
+                const compAmount = Math.max(0, Math.min(0.9, (1.0 - cTop) + cBot));
+                const thresholdVal = -50 * compAmount;
+                const ratioVal = 1 + 19 * compAmount;
+                
+                const targetGain = cTop * (1.0 + 4.0 * cBot);
+                const autoMakeup = getAutoMakeupGain(thresholdVal, ratioVal);
+                const limitGain = targetGain / autoMakeup;
+                
+                offlineMasterCompressor.threshold.setValueAtTime(thresholdVal, offlineCtx.currentTime);
+                offlineMasterCompressor.ratio.setValueAtTime(ratioVal, offlineCtx.currentTime);
+                offlineMasterCompressor.attack.setValueAtTime(0.003, offlineCtx.currentTime);
+                offlineMasterCompressor.release.setValueAtTime(0.08, offlineCtx.currentTime);
+
+                offlineMasterLimiter.gain.setValueAtTime(limitGain, offlineCtx.currentTime);
+
+                // Brickwall Lookahead Limiter to guarantee peaks do not exceed -1.0 dBFS offline
+                function createOfflineLookaheadLimiter(ctx) {
+                    const bufferSize = 4096;
+                    const limiterNode = ctx.createScriptProcessor(bufferSize, 2, 2);
+                    
+                    const sampleRate = ctx.sampleRate;
+                    const lookaheadTime = 0.005; // 5ms lookahead
+                    const delaySamples = Math.ceil(lookaheadTime * sampleRate);
+                    const releaseTime = 0.08; // 80ms release
+                    const coeffRelease = 1.0 - Math.exp(-1.0 / (releaseTime * sampleRate));
+                    const C = 0.89125; // -1.0 dBFS ceiling
+                    
+                    const delayBufL = new Float32Array(delaySamples);
+                    const delayBufR = new Float32Array(delaySamples);
+                    let writeIdx = 0;
+                    let currentGain = 1.0;
+                    
+                    limiterNode.onaudioprocess = function(e) {
+                        const inputBuffer = e.inputBuffer;
+                        const outputBuffer = e.outputBuffer;
+                        const len = inputBuffer.length;
+                        
+                        const inL = inputBuffer.numberOfChannels > 0 ? inputBuffer.getChannelData(0) : new Float32Array(len);
+                        const inR = inputBuffer.numberOfChannels > 1 ? inputBuffer.getChannelData(1) : inL;
+                        const outL = outputBuffer.numberOfChannels > 0 ? outputBuffer.getChannelData(0) : null;
+                        const outR = outputBuffer.numberOfChannels > 1 ? outputBuffer.getChannelData(1) : outL;
+                        
+                        for (let i = 0; i < len; i++) {
+                            const xL = inL[i];
+                            const xR = inR[i];
+                            
+                            // 1. Read delayed sample first
+                            const delayedL = delayBufL[writeIdx];
+                            const delayedR = delayBufR[writeIdx];
+                            
+                            // 2. Overwrite with new incoming sample
+                            delayBufL[writeIdx] = xL;
+                            delayBufR[writeIdx] = xR;
+                            
+                            // 3. Move pointer
+                            writeIdx = (writeIdx + 1) % delaySamples;
+                            
+                            // 4. Find peak in sliding lookahead window (including delayed sample)
+                            let maxVal = Math.max(Math.abs(delayedL), Math.abs(delayedR), 0.0001);
+                            for (let j = 0; j < delaySamples; j++) {
+                                const absL = Math.abs(delayBufL[j]);
+                                const absR = Math.abs(delayBufR[j]);
+                                if (absL > maxVal) maxVal = absL;
+                                if (absR > maxVal) maxVal = absR;
+                            }
+                            
+                            let targetGain = 1.0;
+                            if (maxVal > C) {
+                                targetGain = C / maxVal;
+                            }
+                            
+                            if (targetGain < currentGain) {
+                                currentGain = targetGain;
+                            } else {
+                                currentGain += (targetGain - currentGain) * coeffRelease;
+                            }
+                            
+                            if (outL) outL[i] = delayedL * currentGain;
+                            if (outR) outR[i] = delayedR * currentGain;
+                        }
+                    };
+                    
+                    return limiterNode;
+                }
+
+                const offlineBrickwallLimiter = createOfflineLookaheadLimiter(offlineCtx);
+
+                offlineMasterCompressor.connect(offlineMasterLimiter);
+                offlineMasterLimiter.connect(offlineBrickwallLimiter);
+                offlineBrickwallLimiter.connect(offlineCtx.destination);
+                
+                destinationNode = offlineMasterCompressor;
+            }
+
+            let hasAudioTracks = false;
+            const promises = [];
+
+            for (let el of trackElements) {
+                const trackIndex = parseInt(el.dataset.trackIndex || 0);
+                if (project.trackConfigs && project.trackConfigs[trackIndex] && project.trackConfigs[trackIndex].muted) {
+                    continue;
+                }
+                const trackStart = parseFloat(el.dataset.start);
+                const trackDuration = parseFloat(el.dataset.duration);
+                const type = el.dataset.type;
+                const absoluteStart = startOffset + trackStart;
+
+                if (type === 'html') {
+                    const win = el.contentWindow;
+                    if (win && typeof win.renderAudioOffline === 'function') {
+                        const p = (async () => {
+                            try {
+                                await win.renderAudioOffline(offlineCtx, absoluteStart, trackDuration, destinationNode);
+                                hasAudioTracks = true;
+                            } catch(e) {
+                                console.error("Failed to render offline audio track inside iframe:", e);
+                            }
+                        })();
+                        promises.push(p);
+                    }
+                } else if (type === 'audio') {
+                    const p = (async () => {
+                        try {
+                            let fetchFn = window.fetch;
+                            try {
+                                if (window.top && typeof window.top.fetch === 'function') {
+                                    fetchFn = window.top.fetch;
+                                }
+                            } catch(originErr) {}
+                            const response = await fetchFn(el.src);
+                            let arrayBuffer = await response.arrayBuffer();
+                            try {
+                                if (window !== window.top && window.top.ArrayBuffer) {
+                                    const topBuf = new window.top.ArrayBuffer(arrayBuffer.byteLength);
+                                    new window.top.Uint8Array(topBuf).set(new Uint8Array(arrayBuffer));
+                                    arrayBuffer = topBuf;
+                                }
+                            } catch (realmErr) {
+                                console.warn("Failed to transfer ArrayBuffer to top window realm:", realmErr);
+                            }
+                            const audioBuffer = await offlineCtx.decodeAudioData(arrayBuffer);
+                            
+                            const source = offlineCtx.createBufferSource();
+                            source.buffer = audioBuffer;
+                            
+                            const fadeIn = parseFloat(el.dataset.fadeIn) || 0;
+                            const fadeOut = parseFloat(el.dataset.fadeOut) || 0;
+                            const cTop = parseFloat(el.dataset.compressTop) ?? 1.0;
+                            const cBot = parseFloat(el.dataset.compressBottom) ?? 0.0;
+                            
+                            const clipBoostGain = offlineCtx.createGain();
+                            const clipCompressor = offlineCtx.createDynamicsCompressor();
+                            const clipPostGain = offlineCtx.createGain();
+                            
+                            const compAmount = Math.max(0, Math.min(0.9, (1.0 - cTop) + cBot));
+                            const thresholdVal = -50 * compAmount;
+                            const ratioVal = 1 + 19 * compAmount;
+                            
+                            const targetGain = cTop * (1.0 + 4.0 * cBot);
+                            const autoMakeup = getAutoMakeupGain(thresholdVal, ratioVal);
+                            const postGainVal = targetGain / autoMakeup;
+                            
+                            clipCompressor.threshold.setValueAtTime(thresholdVal, offlineCtx.currentTime);
+                            clipCompressor.ratio.setValueAtTime(ratioVal, offlineCtx.currentTime);
+                            clipCompressor.attack.setValueAtTime(0.003, offlineCtx.currentTime);
+                            clipCompressor.release.setValueAtTime(0.25, offlineCtx.currentTime);
+                            
+                            clipBoostGain.gain.setValueAtTime(1.0, offlineCtx.currentTime);
+                            clipPostGain.gain.setValueAtTime(postGainVal, offlineCtx.currentTime);
+                            
+                            const fadeGain = offlineCtx.createGain();
+                            const baseGain = 1.0; 
+                            
+                            fadeGain.gain.setValueAtTime(0, absoluteStart);
+                            if (fadeIn > 0) {
+                                fadeGain.gain.linearRampToValueAtTime(baseGain, absoluteStart + fadeIn);
+                            } else {
+                                fadeGain.gain.setValueAtTime(baseGain, absoluteStart);
+                            }
+                            
+                            if (fadeOut > 0) {
+                                fadeGain.gain.setValueAtTime(baseGain, absoluteStart + trackDuration - fadeOut);
+                                fadeGain.gain.linearRampToValueAtTime(0, absoluteStart + trackDuration);
+                            }
+                            
+                            let envelopeGain = null;
+                            if (el.dataset.volumePoints) {
+                                try {
+                                    const pts = JSON.parse(el.dataset.volumePoints);
+                                    if (pts && pts.length > 0) {
+                                        envelopeGain = offlineCtx.createGain();
+                                        const sampleRateHz = 100;
+                                        const numSamples = Math.max(10, Math.ceil(trackDuration * sampleRateHz));
+                                        const curveValues = new Float32Array(numSamples);
+                                        for (let s = 0; s < numSamples; s++) {
+                                            const localTime = (s / (numSamples - 1)) * trackDuration;
+                                            const sourceStart = parseFloat(el.dataset.sourceStart || 0.0);
+                                            curveValues[s] = getEnvelopeVolume(pts, localTime + sourceStart, trackDuration);
+                                        }
+                                        envelopeGain.gain.setValueCurveAtTime(curveValues, absoluteStart, trackDuration);
+                                    }
+                                } catch(err) {
+                                    console.error("Failed to apply offline volume points envelope:", err);
+                                }
+                            }
+
+                            source.connect(clipBoostGain);
+                            clipBoostGain.connect(clipCompressor);
+                            clipCompressor.connect(clipPostGain);
+                            
+                            let lastNode = clipPostGain;
+                            if (envelopeGain) {
+                                lastNode.connect(envelopeGain);
+                                lastNode = envelopeGain;
+                            }
+                            
+                            lastNode.connect(fadeGain);
+                            
+                            const trackVol = (project.trackConfigs && project.trackConfigs[trackIndex] && project.trackConfigs[trackIndex].volume !== undefined) 
+                                ? parseFloat(project.trackConfigs[trackIndex].volume) 
+                                : 1.0;
+                            if (trackVol !== 1.0) {
+                                const offlineTrackGain = offlineCtx.createGain();
+                                offlineTrackGain.gain.setValueAtTime(trackVol, offlineCtx.currentTime);
+                                fadeGain.connect(offlineTrackGain);
+                                offlineTrackGain.connect(destinationNode);
+                            } else {
+                                fadeGain.connect(destinationNode);
+                            }
+                            
+                            source.start(absoluteStart);
+                            hasAudioTracks = true;
+                        } catch(e) {
+                            console.error("Failed to render offline pure audio track:", e);
+                        }
+                    })();
+                    promises.push(p);
+                }
+            }
+
+            await Promise.all(promises);
+
+            if (isSubproject) {
+                return;
+            }
+
+            if (!hasAudioTracks) {
+                return null;
+            }
+
+            console.log("Rendering offline mixed audio buffer...");
+            const renderedBuffer = await offlineCtx.startRendering();
+            const wavBuffer = bufferToWav(renderedBuffer);
+            
+            if (returnBuffer) {
+                return wavBuffer;
+            }
+            
+            const bytes = new Uint8Array(wavBuffer);
+            let binary = '';
+            const chunkSize = 0xffff;
+            for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+            }
+            return btoa(binary);
+        };
+
+        // Global spacebar event handler inside render-host
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                const active = document.activeElement;
+                if (active && (
+                    active.tagName === 'TEXTAREA' || 
+                    active.tagName === 'SELECT' || 
+                    (active.tagName === 'INPUT' && (active.type === 'text' || active.type === 'number' || active.type === 'password' || active.type === 'email'))
+                )) {
+                    return;
+                }
+                e.preventDefault();
+                if (window.isParentAccessible() && window.parent && typeof window.parent.togglePlay === 'function') {
+                    window.parent.togglePlay();
+                }
+            }
+        });
+
+        window.isReady = function() {
+            if (!isInitialized) return false;
+            if (trackElements.length === 0) return true;
+            return trackElements.every(el => {
+                const type = el.dataset.type;
+                if (type === 'html') {
+                    if (el.dataset.loaded !== "true") return false;
+                    if (el.dataset.isScriptReady === "false") return false;
+                    try {
+                        const win = el.contentWindow;
+                        if (!win) return false;
+                        
+                        let isSubproject = el.src && el.src.includes('render-host.html');
+                        if (isSubproject) {
+                            if (typeof win.isReady === 'function') {
+                                return win.isReady();
+                            }
+                            return false;
+                        }
+                        
+                        let hasSceneReady = typeof win.seekLivingScene === 'function' || (win.__timelines && Object.keys(win.__timelines).length > 0);
+                        if (typeof win.seekTo === 'function') {
+                            if (typeof win.isReady === 'function') {
+                                  hasSceneReady = win.isReady();
+                            } else {
+                                  hasSceneReady = true;
+                            }
+                        } else {
+                            if (el.dataset.loaded === "true") {
+                                hasSceneReady = true;
+                            }
+                        }
+                        
+                        if (el.dataset.isScriptReady === "true" && !hasSceneReady) {
+                            hasSceneReady = true; // Fallback for layouts with loaded scripts but no timelines
+                        }
+                        
+                        const doc = el.contentDocument || win.document;
+                        if (doc && hasSceneReady) {
+                            const gate = doc.getElementById('gate-overlay') || doc.getElementById('audio-gate');
+                            if (gate) {
+                                gate.style.display = 'none';
+                            }
+                            return true;
+                        }
+                        return false;
+                    } catch(e) {
+                        return el.dataset.loaded === "true";
+                    }
+                } else if (type === 'video' || type === 'audio') {
+                    if (el.error) {
+                        return true; // Skip blocking if loading failed
+                    }
+                    return el.readyState >= 1;
+                } else if (type === 'image') {
+                    if (el.dataset.isFullyReady === "true") {
+                        return true;
+                    }
+                    if (el.complete) {
+                        el.dataset.isFullyReady = "true";
+                        return true;
+                    }
+                    return false;
+                }
+                return true;
+            });
+        };
+
+        // Clip Drag & Zoom Overlay Controls (Legacy Stub - Manipulation is handled by parent overlay)
+        window.setActiveClip = function(clipId) {
+            // No-op. Parent window handles selection overlays and drag/scale gestures.
+        };
+
+        // --- Multi-Engine Client-side Render Logic ---
+
+        window.isBrowserRendering = false;
+
+        window.isRenderingActive = function() {
+            try {
+                let curr = window;
+                while (curr) {
+                    try {
+                        if (curr.isBrowserRendering || curr.location.search.includes('project_name=render_temp') || (curr.navigator && curr.navigator.webdriver)) {
+                            return true;
+                        }
+                    } catch (e) {
+                        break;
+                    }
+                    if (curr === curr.parent) break;
+                    curr = curr.parent;
+                }
+            } catch (e) {}
+            return false;
+        };
+
+        function setupRAFInterception(win) {
+            try {
+                if (win._rafIntercepted) return;
+                win._rafIntercepted = true;
+                
+                const originalRAF = win.requestAnimationFrame;
+                win.requestAnimationFrame = function(cb) {
+                    if (window.isParentAccessible() && window.parent && typeof window.parent.isRenderingActive === 'function' && window.parent.isRenderingActive()) {
+                        win._capturedRAFCallback = cb;
+                        return 0; // dummy ID
+                    } else {
+                        return originalRAF(cb);
+                    }
+                };
+                
+                win.requestAnimationFrame.triggerDraw = function(timestamp) {
+                    if (win._capturedRAFCallback) {
+                        const cb = win._capturedRAFCallback;
+                        win._capturedRAFCallback = null;
+                        try {
+                            cb(timestamp || performance.now());
+                        } catch (e) {
+                            console.error("Error in captured RAF callback:", e);
+                        }
+                    }
+                };
+            } catch (e) {
+                console.warn("Failed to setup RAF interception:", e);
+            }
+        }
+
+        function hasPendingRAF(win) {
+            try {
+                if (!win) return false;
+                if (win._capturedRAFCallback) return true;
+                
+                // Recursively check iframes within this window
+                if (win.trackElements) {
+                    for (let el of win.trackElements) {
+                        if (el.dataset.type === 'html' && el.style.display !== 'none') {
+                            if (hasPendingRAF(el.contentWindow)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // Ignore cross-origin issues
+            }
+            return false;
+        }
+
+        // Web Worker to bypass background tab timer throttling
+        const workerTimer = (() => {
+            const code = `
+                self.onmessage = function(e) {
+                    const { id, delay } = e.data;
+                    setTimeout(() => {
+                        self.postMessage({ id });
+                    }, delay);
+                };
+            `;
+            const blob = new Blob([code], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            const worker = new Worker(url);
+            const callbacks = new Map();
+            let nextId = 0;
+
+            worker.onmessage = function(e) {
+                const { id } = e.data;
+                const cb = callbacks.get(id);
+                if (cb) {
+                    callbacks.delete(id);
+                    cb();
+                }
+            };
+
+            return {
+                delay: (ms) => {
+                    return new Promise(resolve => {
+                        const id = nextId++;
+                        callbacks.set(id, resolve);
+                        worker.postMessage({ id, delay: ms });
+                    });
+                }
+            };
+        })();
+        
+        let shouldAbortBrowserRender = false;
+
+        function compositeFrame(ctx) {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, globalWidth, globalHeight);
+
+            // Sort trackElements by z-index ascending (smaller z-index/bottom tracks drawn first)
+            const sortedTracks = [...trackElements].sort((a, b) => {
+                const zA = parseInt(a.style.zIndex) || 0;
+                const zB = parseInt(b.style.zIndex) || 0;
+                return zA - zB;
+            });
+
+            sortedTracks.forEach(el => {
+                if (el.style.display === 'none') return;
+
+                const type = el.dataset.type;
+                const pX = parseFloat(el.dataset.panX) || 0;
+                const pY = parseFloat(el.dataset.panY) || 0;
+                const clipScaleX = parseFloat(el.dataset.scaleX) || 1.0;
+                const clipScaleY = parseFloat(el.dataset.scaleY) || 1.0;
+                const rotateDeg = parseFloat(el.dataset.rotation) || 0;
+                const opacity = el.style.opacity !== "" ? parseFloat(el.style.opacity) : 1.0;
+
+                const transProgress = el.dataset.transProgress !== undefined ? parseFloat(el.dataset.transProgress) : 1.0;
+                const activeTransType = el.dataset.activeTransType || 'none';
+                const transDirection = el.dataset.transDirection || 'in';
+
+                let transX = 0;
+                let transY = 0;
+                let transScale = 1.0;
+                let transRot = 0;
+
+                if (activeTransType === 'slide-left') {
+                    if (transDirection === 'in') {
+                        transX = (1 - transProgress) * globalWidth;
+                    } else {
+                        transX = (1 - transProgress) * -globalWidth;
+                    }
+                } else if (activeTransType === 'slide-right') {
+                    if (transDirection === 'in') {
+                        transX = (1 - transProgress) * -globalWidth;
+                    } else {
+                        transX = (1 - transProgress) * globalWidth;
+                    }
+                } else if (activeTransType === 'slide-up') {
+                    if (transDirection === 'in') {
+                        transY = (1 - transProgress) * globalHeight;
+                    } else {
+                        transY = (1 - transProgress) * -globalHeight;
+                    }
+                } else if (activeTransType === 'slide-down') {
+                    if (transDirection === 'in') {
+                        transY = (1 - transProgress) * -globalHeight;
+                    } else {
+                        transY = (1 - transProgress) * globalHeight;
+                    }
+                } else if (activeTransType === 'zoom') {
+                    transScale = transProgress;
+                } else if (activeTransType === 'rotate') {
+                    if (transDirection === 'in') {
+                        transRot = (1 - transProgress) * -180;
+                    } else {
+                        transRot = (1 - transProgress) * 180;
+                    }
+                    transScale = transProgress;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = opacity;
+
+                const animDx = parseFloat(el.dataset.animDx) || 0;
+                const animDy = parseFloat(el.dataset.animDy) || 0;
+                const animRot = parseFloat(el.dataset.animRot) || 0;
+                const animScale = el.dataset.animScale !== undefined ? parseFloat(el.dataset.animScale) : 1.0;
+
+                const finalPanX = pX + transX + animDx;
+                const finalPanY = pY + transY + animDy;
+                const finalRot = rotateDeg + transRot + animRot;
+                const finalScaleX = clipScaleX * transScale * animScale;
+                const finalScaleY = clipScaleY * transScale * animScale;
+
+                ctx.translate(globalWidth / 2 + finalPanX, globalHeight / 2 + finalPanY);
+                ctx.rotate(finalRot * Math.PI / 180);
+
+                let drawW = globalWidth;
+                let drawH = globalHeight;
+
+                if (type === 'html') {
+                    let baseWidth = 1920;
+                    let baseHeight = 1080;
+                    try {
+                        const win = el.contentWindow;
+                        const doc = el.contentDocument || win.document;
+                        if (doc) {
+                            const compEl = doc.querySelector('[data-width][data-height]');
+                            if (compEl) {
+                                baseWidth = parseInt(compEl.dataset.width) || 1920;
+                                baseHeight = parseInt(compEl.dataset.height) || 1080;
+                            }
+                        }
+                    } catch (e) {}
+
+                    const htmlScale = Math.min(globalWidth / baseWidth, globalHeight / baseHeight);
+                    ctx.scale(htmlScale * finalScaleX, htmlScale * finalScaleY);
+                    drawW = baseWidth;
+                    drawH = baseHeight;
+                } else {
+                    ctx.scale(finalScaleX, finalScaleY);
+                }
+
+                if (type === 'image') {
+                    ctx.drawImage(el, -drawW / 2, -drawH / 2, drawW, drawH);
+                } else if (type === 'video') {
+                    ctx.drawImage(el, -drawW / 2, -drawH / 2, drawW, drawH);
+                } else if (type === 'html') {
+                    try {
+                        const win = el.contentWindow;
+                        if (win) {
+                            if (typeof win.compositeFrame === 'function') {
+                                const subCanvas = win.getSubprojectCanvas();
+                                const subCtx = win.subprojectCtx;
+                                win.compositeFrame(subCtx);
+                            }
+                            if (win.subprojectCanvas) {
+                                ctx.drawImage(win.subprojectCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+                            } else {
+                                const doc = el.contentDocument || win.document;
+                                if (doc) {
+                                    const iframeCanvas = doc.querySelector('canvas');
+                                    if (iframeCanvas) {
+                                        ctx.drawImage(iframeCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Failed to composite HTML track frame:", e);
+                    }
+                }
+                ctx.restore();
+            });
+
+            // If running as a subproject iframe, also mirror composition to subprojectCanvas
+            if (window !== window.top) {
+                const subCanvas = getSubprojectCanvas();
+                if (ctx !== subprojectCtx) {
+                    subprojectCtx.clearRect(0, 0, globalWidth, globalHeight);
+                    subprojectCtx.drawImage(ctx.canvas, 0, 0);
+                }
+            }
+        }
+        window.compositeFrame = compositeFrame;
+
+        async function runWebCodecsRender(settings) {
+            const width = globalWidth;
+            const height = globalHeight;
+            const fps = settings.fps || 30;
+            const duration = settings.duration || 10;
+            const totalFrames = Math.ceil(duration * fps);
+            const bitrate = (width >= 3840) ? 40e6 : (width >= 1920) ? 8e6 : 4e6;
+            const jobId = Date.now();
+
+            const masterCanvas = document.createElement('canvas');
+            masterCanvas.width = width;
+            masterCanvas.height = height;
+            const masterCtx = masterCanvas.getContext('2d');
+
+            if (typeof WebmMuxer === 'undefined') {
+                throw new Error("WebmMuxer CDN library did not load successfully. Ensure you have an internet connection.");
+            }
+
+            let videoCodec = 'V_VP9';
+            let encoderCodec = 'vp09.00.10.08';
+            let hardwareAccel = 'no-preference';
+
+            try {
+                const codecConfigs = [
+                    { name: 'H264_High', codec: 'avc1.64002a', muxerCodec: 'V_MPEG4/ISO/AVC', hw: 'prefer-hardware' },
+                    { name: 'H264_Main', codec: 'avc1.4d002a', muxerCodec: 'V_MPEG4/ISO/AVC', hw: 'prefer-hardware' },
+                    { name: 'VP9_HW', codec: 'vp09.00.10.08', muxerCodec: 'V_VP9', hw: 'prefer-hardware' },
+                    { name: 'VP9_SW', codec: 'vp09.00.10.08', muxerCodec: 'V_VP9', hw: 'no-preference' },
+                    { name: 'VP8_SW', codec: 'vp8', muxerCodec: 'V_VP8', hw: 'no-preference' }
+                ];
+
+                for (const config of codecConfigs) {
+                    try {
+                        const support = await VideoEncoder.isConfigSupported({
+                            codec: config.codec,
+                            width: width,
+                            height: height,
+                            bitrate: bitrate,
+                            framerate: fps,
+                            hardwareAcceleration: config.hw
+                        });
+                        if (support.supported) {
+                            encoderCodec = config.codec;
+                            videoCodec = config.muxerCodec;
+                            hardwareAccel = config.hw;
+                            console.log(`[Encoder] Selected configuration: ${config.name} (${config.codec}), hw: ${config.hw}`);
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(`Codec support check failed for ${config.name}:`, e);
+                    }
+                }
+            } catch (err) {
+                console.warn("Codec support scan failed. Falling back to VP9 default:", err);
+            }
+
+            // --- Streaming chunk upload setup ---
+            // Instead of accumulating the full WebM in RAM (ArrayBufferTarget),
+            // we use StreamTarget and periodically flush chunks to the server via
+            // /api/upload-client-render-chunk-append (disk-append mode).
+            // This keeps browser RAM usage constant regardless of video length.
+            const videoChunks = [];
+            const FLUSH_CHUNK_COUNT = 30; // flush every ~30 muxer output chunks
+            let pendingFlushPromise = null;
+
+            async function flushVideoChunks() {
+                if (videoChunks.length === 0) return;
+                const toUpload = videoChunks.splice(0, videoChunks.length);
+                const combined = new Uint8Array(toUpload.reduce((acc, c) => acc + c.byteLength, 0));
+                let offset = 0;
+                for (const c of toUpload) {
+                    combined.set(c, offset);
+                    offset += c.byteLength;
+                }
+                const resp = await fetch(`/api/upload-client-render-chunk-append?job_id=${jobId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: combined
+                });
+                if (!resp.ok) throw new Error('Chunk append upload failed: ' + await resp.text());
+            }
+
+            let muxer = new WebmMuxer.Muxer({
+                target: new WebmMuxer.StreamTarget(
+                    (data, position) => {
+                        videoChunks.push(new Uint8Array(data));
+                        if (videoChunks.length >= FLUSH_CHUNK_COUNT) {
+                            if (!pendingFlushPromise) {
+                                pendingFlushPromise = flushVideoChunks().finally(() => { pendingFlushPromise = null; });
+                            }
+                        }
+                    }
+                ),
+                video: {
+                    codec: videoCodec,
+                    width: width,
+                    height: height
+                },
+                streaming: true,          // CRITICAL: forces monotonic sequential writes — required for append-to-file mode
+                firstTimestampBehavior: 'offset'
+            });
+
+            let encoderError = null;
+            let encoder = new VideoEncoder({
+                output: (chunk, metadata) => {
+                    muxer.addVideoChunk(chunk, metadata);
+                },
+                error: (e) => {
+                    console.error("WebCodecs encoding error:", e);
+                    encoderError = e;
+                }
+            });
+
+            await encoder.configure({
+                codec: encoderCodec,
+                width: width,
+                height: height,
+                bitrate: bitrate,
+                framerate: fps,
+                hardwareAcceleration: hardwareAccel
+            });
+
+            for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+                if (shouldAbortBrowserRender) {
+                    throw new Error("Render process aborted by user.");
+                }
+                if (encoderError) {
+                    throw new Error("Encoder encountered a fatal error: " + (encoderError.message || encoderError));
+                }
+
+                // Monitor encoding queue backpressure to prevent GPU encoder lockup
+                while (encoder.encodeQueueSize > 15) {
+                    await workerTimer.delay(2);
+                }
+
+                const time = frameIndex / fps;
+                const anyShown = seekTo(time);
+
+                if (anyShown) {
+                    // Yield control to let newly visible iframe scripts run and initialize
+                    await workerTimer.delay(10);
+                }
+
+                // Wait until all assets for the frame are loaded and ready
+                await new Promise((resolve) => {
+                    let checkCount = 0;
+                    async function check() {
+                        if (window.isReady() || checkCount > 20) {
+                            resolve();
+                        } else {
+                            checkCount++;
+                            await workerTimer.delay(10);
+                            check();
+                        }
+                    }
+                    check();
+                });
+
+                // Yield to the layout engine to ensure that iframe/GSAP repaints have completed
+                let needsLayoutYield = false;
+                for (let el of trackElements) {
+                    if (el.dataset.type === 'html' && el.style.display !== 'none') {
+                        if (hasPendingRAF(el.contentWindow)) {
+                            needsLayoutYield = true;
+                            break;
+                        }
+                    }
+                }
+                if (needsLayoutYield) {
+                    await workerTimer.delay(2);
+                }
+
+                compositeFrame(masterCtx);
+
+                const videoFrame = new VideoFrame(masterCanvas, {
+                    timestamp: (frameIndex * 1e6) / fps // microseconds
+                });
+
+                encoder.encode(videoFrame, { keyFrame: frameIndex % 30 === 0 });
+                videoFrame.close();
+
+                window.parent.postMessage({
+                    type: 'render-progress',
+                    progress: Math.round((frameIndex / totalFrames) * 100),
+                    frame: frameIndex,
+                    total: totalFrames
+                }, '*');
+            }
+
+            await encoder.flush();
+            muxer.finalize();
+
+            // Wait for any in-flight flush, then drain remaining chunks
+            if (pendingFlushPromise) await pendingFlushPromise;
+            await flushVideoChunks();
+
+            window.parent.postMessage({
+                type: 'render-progress',
+                progress: 95,
+                frame: totalFrames,
+                total: totalFrames
+            }, '*');
+
+            let wavBuffer = null;
+            try {
+                wavBuffer = await window.renderAudioOffline(duration, null, null, null, true);
+            } catch (audioErr) {
+                console.error("Failed to render offline audio in browser:", audioErr);
+            }
+
+            window.parent.postMessage({
+                type: 'render-progress',
+                progress: 98,
+                frame: totalFrames,
+                total: totalFrames
+            }, '*');
+
+            try {
+                // Upload audio (video is already on disk via chunk-append)
+                if (wavBuffer) {
+                    const audioResponse = await fetch(`/api/upload-client-render-chunk?job_id=${jobId}&type=audio`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/octet-stream' },
+                        body: wavBuffer
+                    });
+                    if (!audioResponse.ok) {
+                        throw new Error(await audioResponse.text() || 'Failed to upload audio chunk.');
+                    }
+                }
+
+                // Mux video + audio on server
+                const response = await fetch('/api/mux-client-render', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        job_id: jobId,
+                        hasAudio: !!wavBuffer
+                    })
+                });
+
+                if (!response.ok) {
+                    const errTxt = await response.text();
+                    throw new Error(errTxt || 'Server muxing failed.');
+                }
+
+                const result = await response.json();
+                window.parent.postMessage({
+                    type: 'render-success',
+                    url: result.path,
+                    isServerMuxed: true
+                }, '*');
+            } catch (muxErr) {
+                console.error("Failed to upload/mux client render on server:", muxErr);
+                window.parent.postMessage({
+                    type: 'render-error',
+                    error: muxErr.message || "Failed to upload/mux client render on server."
+                }, '*');
+            }
+        }
+
+        async function runCanvasRecorderRender(settings) {
+            const width = globalWidth;
+            const height = globalHeight;
+            const fps = settings.fps || 30;
+            const duration = settings.duration || 10;
+
+            const masterCanvas = document.createElement('canvas');
+            masterCanvas.width = width;
+            masterCanvas.height = height;
+            const masterCtx = masterCanvas.getContext('2d');
+
+            const stream = masterCanvas.captureStream(fps);
+
+            // Mix audio context directly into MediaRecorder output stream if initialized
+            initAudioContext();
+            if (audioCtx) {
+                try {
+                    const audioDest = audioCtx.createMediaStreamDestination();
+                    const finalLimiter = window.masterBrickwallLimiter || window.masterLimiter;
+                    if (finalLimiter) {
+                        finalLimiter.connect(audioDest);
+                    }
+                    const audioTracks = audioDest.stream.getAudioTracks();
+                    if (audioTracks.length > 0) {
+                        stream.addTrack(audioTracks[0]);
+                        console.log("[Render] Audio node successfully mixed to in-browser recorder.");
+                    }
+                } catch(e) {
+                    console.error("Web Audio MediaStream mix error:", e);
+                }
+            }
+
+            let chunks = [];
+            let mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'video/webm;codecs=vp9',
+                videoBitsPerSecond: 5e6
+            });
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) {
+                    chunks.push(e.data);
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'video/webm' });
+                window.parent.postMessage({
+                    type: 'render-success',
+                    url: URL.createObjectURL(blob)
+                }, '*');
+            };
+
+            mediaRecorder.start();
+
+            let startTime = performance.now();
+            let isRecording = true;
+
+            seekTo(0);
+            setPlaybackState(true);
+
+            function drawLoop() {
+                if (!isRecording) return;
+                
+                if (shouldAbortBrowserRender) {
+                    isRecording = false;
+                    setPlaybackState(false);
+                    mediaRecorder.stop();
+                    window.parent.postMessage({ type: 'render-error', message: 'Render process aborted by user.' }, '*');
+                    return;
+                }
+
+                const elapsed = (performance.now() - startTime) / 1000;
+
+                if (elapsed >= duration) {
+                    isRecording = false;
+                    setPlaybackState(false);
+                    mediaRecorder.stop();
+                    return;
+                }
+
+                seekTo(elapsed);
+                compositeFrame(masterCtx);
+
+                window.parent.postMessage({
+                    type: 'render-progress',
+                    progress: Math.round((elapsed / duration) * 100),
+                    frame: Math.round(elapsed * fps),
+                    total: Math.round(duration * fps)
+                }, '*');
+
+                requestAnimationFrame(drawLoop);
+            }
+
+            requestAnimationFrame(drawLoop);
+        }
+
+        function reloadAllHTMLTracks(win) {
+            try {
+                if (!win) return;
+                if (win.trackElements) {
+                    for (let el of win.trackElements) {
+                        if (el.dataset.type === 'html') {
+                            el.dataset.loaded = "false";
+                            el.dataset.isScriptReady = "false";
+                            try {
+                                if (el.srcdoc) {
+                                    const baseHtml = el.dataset.originalSrcdoc || el.srcdoc;
+                                    if (!el.dataset.originalSrcdoc) {
+                                        el.dataset.originalSrcdoc = el.srcdoc;
+                                    }
+                                    el.srcdoc = baseHtml + "\n<!-- reload " + Date.now() + " -->";
+                                } else if (el.src) {
+                                    const originalSrc = el.dataset.originalSrc || el.src;
+                                    if (!el.dataset.originalSrc) {
+                                        el.dataset.originalSrc = el.src;
+                                    }
+                                    const separator = originalSrc.includes('?') ? '&' : '?';
+                                    el.src = originalSrc + separator + "reload_t=" + Date.now();
+                                }
+                            } catch (e) {
+                                el.src = el.src;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        window.addEventListener('message', async (e) => {
+            if (!e.data) return;
+            // Ignore render trigger messages in nested subproject frames
+            try {
+                if (window.isParentAccessible() && window.parent && typeof window.parent.isRenderingActive === 'function' && window.parent !== window) {
+                    return;
+                }
+            } catch (err) {}
+            if (e.data.type === 'start-in-browser-render') {
+                window.isBrowserRendering = true;
+                shouldAbortBrowserRender = false;
+                try {
+                    // Reload all HTML tracks under rendering mode
+                    reloadAllHTMLTracks(window);
+
+                    // Wait for initial readiness of all tracks (up to 5 seconds)
+                    await new Promise((resolve) => {
+                        let checkCount = 0;
+                        async function check() {
+                            if (window.isReady() || checkCount > 500) {
+                                resolve();
+                            } else {
+                                checkCount++;
+                                await workerTimer.delay(10);
+                                check();
+                            }
+                        }
+                        check();
+                    });
+
+                    if (e.data.renderMode === 'webcodecs') {
+                        await runWebCodecsRender(e.data.settings);
+                    } else if (e.data.renderMode === 'canvas-rec') {
+                        await runCanvasRecorderRender(e.data.settings);
+                    }
+                } catch (err) {
+                    window.parent.postMessage({ type: 'render-error', message: err.message }, '*');
+                } finally {
+                    window.isBrowserRendering = false;
+                    reloadAllHTMLTracks(window);
+                }
+            } else if (e.data.type === 'abort-in-browser-render') {
+                shouldAbortBrowserRender = true;
+            }
+        });
+    </script>
+</body>
+</html>

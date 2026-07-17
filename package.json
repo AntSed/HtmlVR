@@ -1,0 +1,16 @@
+{
+  "name": "htmlvr",
+  "version": "1.0.0",
+  "description": "Lightweight code-based HTML video sequencer and renderer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "express": "^4.21.1",
+    "puppeteer": "^23.6.0"
+  }
+}

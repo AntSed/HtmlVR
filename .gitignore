@@ -1,0 +1,55 @@
+node_modules/
+temp/
+renders/
+*.log
+.DS_Store
+
+# Audio/video assets
+public/assets/voice_*
+public/assets/*.wav
+public/assets/*.mp3
+public/assets/*.mp4
+
+# Project-specific compositions
+public/compositions/slide_*
+public/compositions/scene_*
+
+# All project data (user content, not source code)
+public/projects/
+
+# Project build automation scripts (content, not core code)
+build_genius_stickman*.py
+build_with_*.py
+
+# Deleted/archive folder
+deleted/
+
+# Shared runtime state
+shared_state.json
+
+# Temp/scratch media files
+temp_dummy.mp4
+temp_clean.png
+test_vo.wav
+
+# Static image assets (blackboard textures etc.)
+public/assets/*.png
+public/assets/*.jpg
+public/assets/*.jpeg
+
+# Python
+__pycache__/
+*.pyc
+
+# Environment
+.env
+
+# Internal style gallery backups
+public/style_gallery/assets/backups/
+
+# Personal reference and workspace files
+animate_clip.py
+freeman_prompt_style.md
+illust1.md
+illust2.md
+living_line_ref.html

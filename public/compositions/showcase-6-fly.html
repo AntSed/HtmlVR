@@ -1,0 +1,1208 @@
+<!doctype html>
+<html lang="en" data-composition-variables='[
+  {"id":"wiggleSpeed", "type":"number", "label":"Whiteboard Wiggle FPS", "default":8.0, "min":0.0, "max":24.0},
+  {"id":"highlighterColor", "type":"color", "label":"Highlighter Accent", "default":"#dc2626"}
+]'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Distraction Mechanics: The Fly - Hyperframes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Outfit:wght@400;600;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Heavy-Duty Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="assets/rough.umd.js"></script>
+
+    <style>
+      :root {
+        --bg-whiteboard: #faf8f0;
+      }
+
+      body, html {
+        margin: 0;
+        padding: 0;
+        width: 1920px;
+        height: 1080px;
+        background-color: var(--bg-whiteboard);
+        overflow: hidden;
+        font-family: "Outfit", Arial, sans-serif;
+      }
+
+      #master-root {
+        width: 1920px;
+        height: 1080px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      #whiteboard-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1920px;
+        height: 1080px;
+        display: block;
+        z-index: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="master-root"
+      data-composition-id="showcase-6-fly"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="15"
+    >
+      <!-- Synchronized Audio Elements -->
+      <audio id="audio-fly" class="clip" src="assets/fly.wav" data-start="0.2" data-duration="15" data-track-index="0" data-volume="0.55"></audio>
+
+      <!-- Whiteboard Presentation Canvas -->
+      <canvas id="whiteboard-canvas" width="1920" height="1080"></canvas>
+
+      <script>
+        // ==========================================================
+        // 0. SEEDED DETERMINISTIC PRNG
+        // ==========================================================
+        function makeSeededRandom(seed) {
+          let s = seed;
+          return function() {
+            s = (s * 9301 + 49297) % 233280;
+            return s / 233280;
+          };
+        }
+        const rng = makeSeededRandom(2026);
+
+        // ==========================================================
+        // 1. DYNAMIC HYPERFRAMES VARIABLES
+        // ==========================================================
+        const defaultVars = {
+          wiggleSpeed: 8.0,
+          highlighterColor: "#dc2626"
+        };
+
+        let vars = defaultVars;
+        try {
+          if (typeof __hyperframes !== 'undefined' && __hyperframes.getVariables) {
+            vars = { ...defaultVars, ...__hyperframes.getVariables() };
+          }
+        } catch(e) {
+          console.warn("Could not load hyperframes variables context, using defaults", e);
+        }
+
+        // ==========================================================
+        // 2. 2D ANALYTICAL INVERSE KINEMATICS SOLVER (2-segment limb)
+        // ==========================================================
+        function solveIK(xJoint, yJoint, xTarget, yTarget, len1, len2, flip) {
+          const dx = xTarget - xJoint;
+          const dy = yTarget - yJoint;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Prevent trigonometric singularity near boundaries by clamping distance
+          const maxLen = len1 + len2 - 0.4;
+          const minLen = Math.abs(len1 - len2) + 0.4;
+          let tx = xTarget;
+          let ty = yTarget;
+          let d = dist;
+
+          if (dist > maxLen) {
+            tx = xJoint + (dx / dist) * maxLen;
+            ty = yJoint + (dy / dist) * maxLen;
+            d = maxLen;
+          } else if (dist < minLen) {
+            tx = xJoint + (dx / dist) * minLen;
+            ty = yJoint + (dy / dist) * minLen;
+            d = minLen;
+          }
+
+          // Law of Cosines
+          const cosA = (len1 * len1 + d * d - len2 * len2) / (2 * len1 * d);
+          const a = Math.acos(Math.max(-1.0, Math.min(1.0, cosA)));
+
+          // Base vector inclination
+          const phi = Math.atan2(ty - yJoint, tx - xJoint);
+
+          // Joint rotation angle with flip bend
+          const theta = phi + flip * a;
+
+          // Compute knee/elbow joint position
+          const xMid = xJoint + len1 * Math.cos(theta);
+          const yMid = yJoint + len1 * Math.sin(theta);
+
+          return { x: xMid, y: yMid };
+        }
+
+        // ==========================================================
+        // 3. SYNTHESIZED WEB AUDIO PROCEDURAL SFX & BUZZ ENGINE
+        // ==========================================================
+        let audioCtx = null;
+        let buzzOsc1 = null;
+        let buzzOsc2 = null;
+        let buzzGainNode = null;
+
+        function initAudioContext() {
+          if (audioCtx) return;
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          
+          buzzOsc1 = audioCtx.createOscillator();
+          buzzOsc2 = audioCtx.createOscillator();
+          buzzGainNode = audioCtx.createGain();
+          
+          buzzOsc1.type = 'sawtooth';
+          buzzOsc2.type = 'triangle';
+          
+          buzzOsc1.frequency.setValueAtTime(130, audioCtx.currentTime);
+          buzzOsc2.frequency.setValueAtTime(260, audioCtx.currentTime); 
+          
+          buzzGainNode.gain.setValueAtTime(0.0, audioCtx.currentTime);
+          
+          const bandpass = audioCtx.createBiquadFilter();
+          bandpass.type = 'bandpass';
+          bandpass.frequency.value = 350;
+          bandpass.Q.value = 2.2;
+          
+          buzzOsc1.connect(bandpass);
+          buzzOsc2.connect(bandpass);
+          bandpass.connect(buzzGainNode);
+          buzzGainNode.connect(audioCtx.destination);
+          
+          buzzOsc1.start();
+          buzzOsc2.start();
+        }
+
+        function updateBuzzAudio(t, speed, distanceToLecturer, isPlaying) {
+          try {
+            if (!audioCtx) initAudioContext();
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            
+            if (!isPlaying || t < 1.0 || t >= 14.95) {
+              buzzGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+              return;
+            }
+            
+            // Base pitch modulated by fly velocity
+            const baseFreq = 130 + Math.min(35, speed * 0.04);
+            
+            // Proximity Doppler-like frequency modulation
+            const maxDist = 1200;
+            const normDist = Math.max(0, Math.min(1.0, distanceToLecturer / maxDist));
+            const proximityPitch = 25 * (1.0 - normDist);
+            
+            buzzOsc1.frequency.setTargetAtTime(baseFreq + proximityPitch, audioCtx.currentTime, 0.05);
+            buzzOsc2.frequency.setTargetAtTime((baseFreq + proximityPitch) * 2.0, audioCtx.currentTime, 0.05);
+            
+            // Volume rises exponentially as fly gets closer to lecturer head
+            let targetVolume = 0.22 * Math.pow(1.0 - normDist, 2.5);
+            
+            // Phase 1 soft entry ramp
+            if (t < 3.0) {
+              targetVolume *= Math.max(0, (t - 1.0) / 2.0);
+            }
+            
+            buzzGainNode.gain.setTargetAtTime(targetVolume, audioCtx.currentTime, 0.05);
+          } catch(e) {}
+        }
+
+        function playWhooshSFX() {
+          try {
+            if (!audioCtx) initAudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(170, now);
+            osc.frequency.exponentialRampToValueAtTime(45, now + 0.22);
+            
+            gain.gain.setValueAtTime(0.35, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 140;
+            
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(now + 0.23);
+          } catch(e) {}
+        }
+
+        function playClapSFX() {
+          try {
+            if (!audioCtx) initAudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const now = audioCtx.currentTime;
+            const bufferSize = audioCtx.sampleRate * 0.12; 
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            
+            // Seeded deterministic noise
+            let s = 9999;
+            for (let i = 0; i < bufferSize; i++) {
+              s = (s * 9301 + 49297) % 233280;
+              data[i] = (s / 233280) * 2.0 - 1.0;
+            }
+            
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = 750;
+            filter.Q.value = 2.8;
+            
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(0.55, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.10);
+            
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            noise.start();
+          } catch(e) {}
+        }
+
+        function playSmackSFX() {
+          try {
+            if (!audioCtx) initAudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const now = audioCtx.currentTime;
+            
+            // Sharp smack body
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(350, now);
+            osc.frequency.exponentialRampToValueAtTime(70, now + 0.08);
+            
+            gain.gain.setValueAtTime(0.65, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(now + 0.09);
+            
+            // Slap friction crunch
+            const bufferSize = audioCtx.sampleRate * 0.07;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            let s = 8888;
+            for (let i = 0; i < bufferSize; i++) {
+              s = (s * 9301 + 49297) % 233280;
+              data[i] = (s / 233280) * 2.0 - 1.0;
+            }
+            
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'highpass';
+            filter.frequency.value = 1400;
+            
+            const noiseGain = audioCtx.createGain();
+            noiseGain.gain.setValueAtTime(0.35, now);
+            noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+            
+            noise.connect(filter);
+            filter.connect(noiseGain);
+            noiseGain.connect(audioCtx.destination);
+            
+            noise.start();
+          } catch(e) {}
+        }
+
+        // ==========================================================
+        // 4. WIGGLING OFFSCREEN WHITEBOARD CACHING (60 FPS OPTIMIZATION)
+        // ==========================================================
+        const mainCanvas = document.getElementById("whiteboard-canvas");
+        const mainCtx = mainCanvas.getContext("2d");
+
+        const numWiggleFrames = 4;
+        const offscreenCanvases = [];
+        const offscreenContexts = [];
+
+        for (let i = 0; i < numWiggleFrames; i++) {
+          const off = document.createElement("canvas");
+          off.width = 1920;
+          off.height = 1080;
+          offscreenCanvases.push(off);
+          offscreenContexts.push(off.getContext("2d"));
+        }
+
+        function initCachedWhiteboards() {
+          for (let i = 0; i < numWiggleFrames; i++) {
+            const canvas = offscreenCanvases[i];
+            const ctx = offscreenContexts[i];
+            const rc = rough.canvas(canvas);
+            const seed = 6060; // Fixed seed completely eliminates shivering on background panels!
+
+            // A. Solid dry-erase background
+            ctx.fillStyle = "#faf8f0";
+            ctx.fillRect(0, 0, 1920, 1080);
+
+            // B. Blueprint grids
+            ctx.strokeStyle = "rgba(43, 108, 176, 0.04)";
+            ctx.lineWidth = 1;
+            for (let x = 40; x < 1920; x += 40) {
+              ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1080); ctx.stroke();
+            }
+            for (let y = 40; y < 1080; y += 40) {
+              ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1920, y); ctx.stroke();
+            }
+
+            // C. Walnut wood frame borders
+            rc.rectangle(20, 20, 1880, 1040, {
+              roughness: 1.3,
+              stroke: "#4a2c0f",
+              strokeWidth: 8,
+              seed: seed
+            });
+            rc.rectangle(30, 30, 1860, 1020, {
+              roughness: 0.8,
+              stroke: "#683e16",
+              strokeWidth: 3,
+              seed: seed + 2
+            });
+
+            // D. Central Presentation Headers
+            ctx.save();
+            ctx.font = "900 44px 'Outfit'";
+            ctx.fillStyle = "#1e293b";
+            ctx.textAlign = "center";
+            ctx.fillText("THE DISTRACTION MECHANICS", 960, 92);
+            
+            ctx.font = "italic 20px 'Architects Daughter'";
+            ctx.fillStyle = "#475569";
+            ctx.fillText("A Visual Exploration of Attention Thresholds and Environmental Interference", 960, 132);
+            ctx.restore();
+
+            // Dividing line
+            rc.line(80, 160, 1840, 160, {
+              roughness: 1.0,
+              stroke: "#1e293b",
+              strokeWidth: 2.5,
+              seed: seed + 4
+            });
+
+            // Solid classroom ground floor line
+            rc.line(80, 850, 1840, 850, {
+              roughness: 1.3,
+              stroke: "#1e293b",
+              strokeWidth: 3.5,
+              seed: seed + 6
+            });
+
+            // E. PANEL 1: Left Slate Chalkboard Frame (Lecture: Chaos Theory)
+            rc.rectangle(80, 180, 750, 600, {
+              roughness: 1.1,
+              stroke: "#334155",
+              strokeWidth: 2,
+              seed: seed + 8
+            });
+
+            // F. PANEL 2: Right Slate HUD Telemetry (Fly Stats Indicators)
+            rc.rectangle(1180, 180, 660, 270, {
+              roughness: 1.1,
+              stroke: "#0d9488",
+              strokeWidth: 2,
+              seed: seed + 10
+            });
+
+            ctx.save();
+            ctx.font = "bold 21px 'Outfit'";
+            ctx.fillStyle = "#0d9488";
+            ctx.fillText("REAL-TIME ATTENTION TELEMETRY HUD", 1205, 220);
+            ctx.restore();
+          }
+        }
+
+        // ==========================================================
+        // 5. DETERMINISTIC LECTURE & INTERACTIVE TRAJECTORY PHYSICS
+        // ==========================================================
+        
+        function getSkeletonPoints(t) {
+          const pelvisX = 1100;
+          let pelvisY = 850 - 75; // 775 standard pelvis height
+          
+          let lean = 0.05;
+          if (t < 2.5) {
+            // Writing: leans forward towards chalkboard
+            lean = -0.16;
+          } else if (t < 3.5) {
+            // Recoils upright
+            const dt = (t - 2.5) / 1.0;
+            const ease = dt * dt * (3 - 2 * dt);
+            lean = -0.16 + 0.21 * ease;
+          }
+          
+          // Pelvis drops slightly on smack recoil
+          if (t >= 14.95) {
+            const dt = Math.min(1.0, (t - 14.95) / 0.05);
+            pelvisY += dt * 10;
+          }
+          
+          const torsoH = 75;
+          const chestX = pelvisX + torsoH * Math.sin(lean);
+          const chestY = pelvisY - torsoH * Math.cos(lean);
+          
+          const headX = chestX + 15 * Math.sin(lean);
+          const headY = chestY - 15 * Math.cos(lean) - 10;
+          
+          const noseX = headX - 22;
+          const noseY = headY;
+          
+          return { pelvisX, pelvisY, lean, chestX, chestY, headX, headY, noseX, noseY };
+        }
+
+        function getFlyPositionRaw(t) {
+          if (t < 0.8) {
+            return { x: -100, y: -100 };
+          }
+          
+          let x = 0;
+          let y = 0;
+          
+          if (t < 5.0) {
+            // Phase 1: Fly enters from left and wiggles around chalkboard
+            const entryT = Math.min(1.0, (t - 0.8) / 1.2);
+            const startX = -60;
+            const startY = 140;
+            
+            const baseT = t - 1.8;
+            const cx = 360 + 190 * Math.sin(baseT * 1.6) + 80 * Math.cos(baseT * 3.8);
+            const cy = 380 + 140 * Math.cos(baseT * 1.3) + 70 * Math.sin(baseT * 4.3);
+            
+            const wiggle = 12 * Math.sin(t * 36) * Math.cos(t * 18);
+            
+            x = startX + entryT * (cx - startX) + wiggle;
+            y = startY + entryT * (cy - startY) + wiggle;
+          } else if (t < 10.0) {
+            // Phase 2: fly buzzes around face, with dramatic swat twitches
+            const baseT = t - 5.0;
+            let bx = 1000 + 110 * Math.sin(baseT * 2.2);
+            let by = 560 + 90 * Math.cos(baseT * 1.8);
+            
+            if (t >= 5.8 && t < 6.4) {
+              // Swat 1 dodge zoom
+              const dt = (t - 5.8) / 0.6;
+              bx += -160 * Math.sin(dt * Math.PI);
+              by += -130 * Math.sin(dt * Math.PI);
+            } else if (t >= 7.3 && t < 7.9) {
+              // Swat 2 dodge zoom
+              const dt = (t - 7.3) / 0.6;
+              bx += 170 * Math.sin(dt * Math.PI);
+              by += 110 * Math.sin(dt * Math.PI);
+            } else if (t >= 8.8 && t < 9.6) {
+              // Double clap circular escape loop
+              const dt = (t - 8.8) / 0.8;
+              const angle = dt * Math.PI * 2;
+              bx += 90 * Math.sin(angle);
+              by += -90 + 90 * Math.cos(angle);
+            }
+            
+            const wiggle = 15 * Math.sin(t * 42) * Math.cos(t * 22);
+            x = bx + wiggle;
+            y = by + wiggle;
+          } else {
+            // Phase 3: Fly lands on nose, then zooms off screen
+            const sk = getSkeletonPoints(t);
+            const noseX = sk.noseX;
+            const noseY = sk.noseY;
+            
+            if (t < 10.5) {
+              // Zoom down to land on nose
+              const dt = (t - 10.0) / 0.5;
+              const pos10 = getFlyPositionRaw(10.0);
+              const ease = dt * dt * (3 - 2 * dt);
+              x = pos10.x + (noseX - pos10.x) * ease;
+              y = pos10.y + (noseY - pos10.y) * ease;
+            } else if (t < 14.95) {
+              // Sitting on the nose, micro breathing wiggles
+              x = noseX + 1.2 * Math.sin(t * 32);
+              y = noseY + 0.6 * Math.cos(t * 24);
+            } else {
+              // Escapes instantly upward
+              const dt = Math.min(1.0, (t - 14.95) / 0.05);
+              x = noseX;
+              y = noseY - 850 * (dt * dt);
+            }
+          }
+          
+          return { x, y };
+        }
+
+        function getFlyPosition(t) {
+          const current = getFlyPositionRaw(t);
+          const next = getFlyPositionRaw(t + 0.005);
+          const prev = getFlyPositionRaw(t - 0.005);
+          const vx = (next.x - prev.x) / 0.01;
+          const vy = (next.y - prev.y) / 0.01;
+          return { x: current.x, y: current.y, vx, vy };
+        }
+
+        function getHandPositions(t, sk, flyPos) {
+          // Standard rest shoulder alignment positions
+          const restL_X = sk.chestX - 35;
+          const restL_Y = sk.chestY + 65;
+          
+          const restR_X = sk.chestX + 35;
+          const restR_Y = sk.chestY + 65;
+          
+          let handL_X = restL_X;
+          let handL_Y = restL_Y;
+          
+          let handR_X = restR_X;
+          let handR_Y = restR_Y;
+          
+          // Phase 1 writing logic (L Hand writes, R Hand rest)
+          if (t < 2.5) {
+            handL_X = 350 + 60 * Math.sin(t * 5.0) + 30 * Math.cos(t * 8.5);
+            handL_Y = 480 + 50 * Math.cos(t * 4.0) + 20 * Math.sin(t * 7.5);
+          } else if (t < 3.5) {
+            const dt = (t - 2.5) / 1.0;
+            const ease = dt * dt * (3 - 2 * dt);
+            const startX = 350 + 60 * Math.sin(2.5 * 5.0) + 30 * Math.cos(2.5 * 8.5);
+            const startY = 480 + 50 * Math.cos(2.5 * 4.0) + 20 * Math.sin(2.5 * 7.5);
+            handL_X = startX + (restL_X - startX) * ease;
+            handL_Y = startY + (restL_Y - startY) * ease;
+          }
+          
+          // Swat 1 (Right hand swats fly at t = 6.0)
+          if (t >= 5.7 && t < 6.3) {
+            const dt = Math.abs(t - 6.0) / 0.3;
+            const ease = 1.0 - dt * dt * (3 - 2 * dt);
+            handR_X = restR_X + (flyPos.x - restR_X) * ease;
+            handR_Y = restR_Y + (flyPos.y - restR_Y) * ease;
+          }
+          
+          // Swat 2 (Left hand swats fly at t = 7.5)
+          if (t >= 7.2 && t < 7.8) {
+            const dt = Math.abs(t - 7.5) / 0.3;
+            const ease = 1.0 - dt * dt * (3 - 2 * dt);
+            handL_X = restL_X + (flyPos.x - restL_X) * ease;
+            handL_Y = restL_Y + (flyPos.y - restL_Y) * ease;
+          }
+          
+          // Double Clap hands converge at t = 9.0
+          if (t >= 8.7 && t < 9.3) {
+            const dt = Math.abs(t - 9.0) / 0.3;
+            const ease = 1.0 - dt * dt * (3 - 2 * dt);
+            const targetX = flyPos.x;
+            const targetY = flyPos.y;
+            
+            handL_X = restL_X + (targetX - restL_X) * ease;
+            handL_Y = restL_Y + (targetY - restL_Y) * ease;
+            
+            handR_X = restR_X + (targetX - restR_X) * ease;
+            handR_Y = restR_Y + (targetY - restR_Y) * ease;
+          }
+          
+          // Phase 3 slow approach & nose slap
+          if (t >= 11.5 && t < 14.95) {
+            const dt = (t - 11.5) / (14.95 - 11.5);
+            // Moves slowly closer to nose
+            handR_X = restR_X + (sk.noseX - restR_X) * dt;
+            handR_Y = restR_Y + (sk.noseY - restR_Y) * dt;
+          } else if (t >= 14.95) {
+            // Smack on the nose!
+            handR_X = sk.noseX;
+            handR_Y = sk.noseY;
+          }
+          
+          return { handL_X, handL_Y, handR_X, handR_Y };
+        }
+
+        function getMarkerPosition(t) {
+          if (t < 5.2) return null;
+          
+          const dt = t - 5.2;
+          const skStart = getSkeletonPoints(5.2);
+          const flyPosStart = getFlyPosition(5.2);
+          const handStart = getHandPositions(5.2, skStart, flyPosStart);
+          
+          const startX = handStart.handL_X;
+          const startY = handStart.handL_Y;
+          
+          let x = startX - 70 * dt;
+          let y = startY - 40 * dt + 0.5 * 650 * dt * dt;
+          let angle = dt * 380;
+          
+          if (y > 846) {
+            const bounceDt = t - 5.2 - 0.7;
+            if (bounceDt > 0) {
+              x = startX - 70 * 0.7 - 25 * bounceDt;
+              y = 846;
+              angle = 0.7 * 380 + bounceDt * 90;
+            } else {
+              y = 846;
+            }
+          }
+          return { x, y, angle };
+        }
+
+        // ==========================================================
+        // 6. RENDER COMPONENTS
+        // ==========================================================
+
+        function drawChalkboardText(rc, ctx, t, seedOffset) {
+          ctx.save();
+          ctx.font = "bold 24px 'Outfit'";
+          ctx.fillStyle = "#1e293b";
+          ctx.textAlign = "left";
+          
+          if (t >= 0.5) {
+            ctx.fillText("Lecture: Chaos Theory", 110, 230);
+          }
+          
+          if (t >= 1.0) {
+            ctx.font = "italic bold 18px 'Architects Daughter'";
+            ctx.fillStyle = "#2563eb"; // Chalk blue
+            ctx.fillText("Lorenz Attractor dynamics:", 110, 275);
+          }
+          
+          if (t >= 1.4) {
+            ctx.font = "bold 18px 'Architects Daughter'";
+            ctx.fillStyle = "#1e293b";
+            ctx.fillText("dx/dt = σ(y - x)", 110, 325);
+          }
+          
+          if (t >= 1.8) {
+            ctx.fillText("dy/dt = x(ρ - z) - y", 110, 375);
+          }
+          
+          if (t >= 2.2) {
+            ctx.fillText("dz/dt = xy - βz", 110, 425);
+            ctx.font = "italic 16px 'Architects Daughter'";
+            ctx.fillStyle = "#475569";
+            ctx.fillText("Lyapunov Horizon: λ ≈ 1.45", 110, 475);
+          }
+          
+          // Animate Lorenz spiral sweep drawing
+          if (t >= 0.8) {
+            const reveal = Math.min(1.0, (t - 0.8) / 1.7);
+            const pointsCount = Math.floor(220 * reveal);
+            
+            if (pointsCount > 2) {
+              const points = [];
+              let lx = 0.1, ly = 0, lz = 0;
+              const dt = 0.02;
+              const sigma = 10, rho = 28, beta = 8/3;
+              for (let p = 0; p < pointsCount; p++) {
+                const dx = sigma * (ly - lx) * dt;
+                const dy = (lx * (rho - lz) - ly) * dt;
+                const dz = (lx * ly - beta * lz) * dt;
+                lx += dx;
+                ly += dy;
+                lz += dz;
+                points.push([470 + lx * 11, 480 - ly * 5.2]);
+              }
+              
+              rc.curve(points, {
+                stroke: "#0284c7",
+                strokeWidth: 2,
+                roughness: 1.2,
+                seed: 777 + seedOffset
+              });
+            }
+          }
+          ctx.restore();
+        }
+
+        function drawLecturer(rc, ctx, t, sk, handPos, flyPos, seedOffset) {
+          const seed = 7070 + seedOffset;
+          const stickColor = "#1e293b";
+          const headFill = "#1e293b"; 
+
+          // Head-neck tilt look-at fly calculation
+          let headRotation = -0.3; // Default chalkboard focus
+          if (t >= 2.5 && t < 3.5) {
+            const dt = (t - 2.5) / 1.0;
+            const ease = dt * dt * (3 - 2 * dt);
+            const targetRot = Math.max(-0.3, Math.min(0.35, Math.atan2(flyPos.y - sk.headY, flyPos.x - sk.headX)));
+            headRotation = -0.3 + (targetRot - -0.3) * ease;
+          } else if (t >= 3.5 && t < 10.5) {
+            headRotation = Math.max(-0.3, Math.min(0.35, Math.atan2(flyPos.y - sk.headY, flyPos.x - sk.headX)));
+          } else if (t >= 10.5) {
+            headRotation = -0.05; // Freeze looking forward-down
+          }
+
+          // Solve Legs IK
+          const hipL_X = sk.pelvisX - 5 * Math.cos(sk.lean);
+          const hipL_Y = sk.pelvisY + 2;
+          const hipR_X = sk.pelvisX + 5 * Math.cos(sk.lean);
+          const hipR_Y = sk.pelvisY - 2;
+
+          const footL_X = sk.pelvisX - 35;
+          const footR_X = sk.pelvisX + 35;
+          const footY = 850;
+
+          const kneeL = solveIK(hipL_X, hipL_Y, footL_X, footY, 45, 45, -1);
+          const kneeR = solveIK(hipR_X, hipR_Y, footR_X, footY, 45, 45, -1);
+
+          // Solve Arms IK
+          const armUpperL = 36;
+          const armForeL = 34;
+
+          const elbowL = solveIK(sk.chestX, sk.chestY, handPos.handL_X, handPos.handL_Y, armUpperL, armForeL, -1);
+          const elbowR = solveIK(sk.chestX, sk.chestY, handPos.handR_X, handPos.handR_Y, armUpperL, armForeL, 1);
+
+          // DRAW SKELETON BONES
+          // Head outer contour
+          rc.circle(sk.headX, sk.headY, 22, {
+            stroke: stickColor,
+            strokeWidth: 2,
+            roughness: 1.0,
+            seed: seed
+          });
+
+          // Spine
+          rc.line(sk.pelvisX, sk.pelvisY, sk.chestX, sk.chestY, { stroke: stickColor, strokeWidth: 3.5, roughness: 1.0, seed: seed + 5 });
+
+          // Left Leg
+          rc.line(hipL_X, hipL_Y, kneeL.x, kneeL.y, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 10 });
+          rc.line(kneeL.x, kneeL.y, footL_X, footY, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 15 });
+
+          // Right Leg
+          rc.line(hipR_X, hipR_Y, kneeR.x, kneeR.y, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 20 });
+          rc.line(kneeR.x, kneeR.y, footR_X, footY, { stroke: stickColor, strokeWidth: 3, roughness: 0.9, seed: seed + 25 });
+
+          // Left Arm
+          rc.line(sk.chestX, sk.chestY, elbowL.x, elbowL.y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 30 });
+          rc.line(elbowL.x, elbowL.y, handPos.handL_X, handPos.handL_Y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 35 });
+
+          // Right Arm
+          rc.line(sk.chestX, sk.chestY, elbowR.x, elbowR.y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 40 });
+          rc.line(elbowR.x, elbowR.y, handPos.handR_X, handPos.handR_Y, { stroke: stickColor, strokeWidth: 2.5, roughness: 1.0, seed: seed + 45 });
+
+          // Wield marker in left hand before dropping at t=5.2s
+          if (t < 5.2) {
+            ctx.save();
+            ctx.translate(handPos.handL_X, handPos.handL_Y);
+            ctx.rotate(0.2);
+            rc.rectangle(-2, -8, 5, 12, {
+              stroke: "#475569",
+              fill: "#3b82f6", // Blue chalk marker
+              fillStyle: "solid",
+              strokeWidth: 1.2,
+              seed: seed + 49
+            });
+            ctx.restore();
+          }
+
+          // Dynamic Eyes Rendering inside Head Circle
+          drawEyes(ctx, t, sk, flyPos);
+        }
+
+        function drawEyes(ctx, t, sk, flyPos) {
+          ctx.save();
+          ctx.strokeStyle = "#1e293b";
+          ctx.lineWidth = 1.5;
+          ctx.fillStyle = "#ffffff";
+          
+          // Base eyes coordinates inside rotated head frame
+          const eyeLX = sk.headX - 9;
+          const eyeLY = sk.headY - 3;
+          const eyeRX = sk.headX - 1;
+          const eyeRY = sk.headY - 5;
+          
+          const eyeRad = 4.2;
+          
+          ctx.beginPath();
+          ctx.arc(eyeLX, eyeLY, eyeRad, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          
+          ctx.beginPath();
+          ctx.arc(eyeRX, eyeRY, eyeRad, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          
+          // Draw Pupils
+          ctx.fillStyle = "#000000";
+          let pupLX = eyeLX;
+          let pupLY = eyeLY;
+          let pupRX = eyeRX;
+          let pupRY = eyeRY;
+          
+          if (t >= 10.5) {
+            // Landing cross-eyes gazing down-left at own nose
+            pupLX = eyeLX - 1.8;
+            pupLY = eyeLY + 1.2;
+            
+            pupRX = eyeRX - 2.5;
+            pupRY = eyeRY + 1.4;
+          } else {
+            // Dynamic track gaze pointing directly at fly coordinates
+            const angleL = Math.atan2(flyPos.y - eyeLY, flyPos.x - eyeLX);
+            const angleR = Math.atan2(flyPos.y - eyeRY, flyPos.x - eyeRX);
+            
+            pupLX = eyeLX + 1.8 * Math.cos(angleL);
+            pupLY = eyeLY + 1.8 * Math.sin(angleL);
+            
+            pupRX = eyeRX + 1.8 * Math.cos(angleR);
+            pupRY = eyeRY + 1.8 * Math.sin(angleR);
+          }
+          
+          ctx.beginPath();
+          ctx.arc(pupLX, pupLY, 1.3, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.beginPath();
+          ctx.arc(pupRX, pupRY, 1.3, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.restore();
+        }
+
+        function drawSweatDroplet(rc, ctx, t, sk, seedOffset) {
+          if (t < 10.5) return;
+          
+          ctx.save();
+          const x = sk.headX + 22;
+          const y = sk.headY - 24;
+          
+          // Sweat droplet wiggles at offscreen cache speed
+          rc.path(`M ${x} ${y} Q ${x + 6} ${y + 11} ${x} ${y + 15} Q ${x - 6} ${y + 11} ${x} ${y} Z`, {
+            stroke: "#2b6cb0",
+            fill: "#63b3ed",
+            fillStyle: "solid",
+            strokeWidth: 1.5,
+            roughness: 1.2,
+            seed: 4949 + seedOffset
+          });
+          ctx.restore();
+        }
+
+        function drawFlyTrail(rc, ctx, t) {
+          if (t < 0.8) return;
+          
+          ctx.save();
+          ctx.strokeStyle = "rgba(100, 116, 139, 0.4)"; // Faint slate trail path
+          ctx.lineWidth = 2.0;
+          ctx.setLineDash([2, 5]); 
+          
+          ctx.beginPath();
+          let first = true;
+          for (let i = 0; i < 28; i++) {
+            const sampleT = t - i * 0.04;
+            if (sampleT < 0.8) break;
+            const pos = getFlyPositionRaw(sampleT);
+            if (first) {
+              ctx.moveTo(pos.x, pos.y);
+              first = false;
+            } else {
+              ctx.lineTo(pos.x, pos.y);
+            }
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function drawFly(rc, ctx, t, flyPos) {
+          if (t < 0.8 || t >= 15.0) return;
+          
+          ctx.save();
+          ctx.translate(flyPos.x, flyPos.y);
+          
+          // Face bug along directional velocity vector
+          const heading = Math.atan2(flyPos.vy, flyPos.vx);
+          ctx.rotate(heading);
+          
+          // Body silhouette
+          ctx.fillStyle = "#1e293b";
+          ctx.strokeStyle = "#0f172a";
+          ctx.lineWidth = 1;
+          
+          ctx.beginPath();
+          ctx.ellipse(0, 0, 7.5, 4.2, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          
+          // Head
+          ctx.beginPath();
+          ctx.arc(8.5, 0, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Wiggling wings alternation at 15 FPS
+          const swapWing = Math.floor(t * 15) % 2 === 0;
+          ctx.fillStyle = "rgba(148, 163, 184, 0.65)";
+          ctx.strokeStyle = "#475569";
+          
+          if (swapWing) {
+            ctx.beginPath();
+            ctx.ellipse(-2, -5.5, 6, 2.2, -Math.PI / 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.ellipse(-2, 5.5, 6, 2.2, Math.PI / 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            ctx.ellipse(-3, -6.5, 5, 2.6, -Math.PI / 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.ellipse(-3, 6.5, 5, 2.6, Math.PI / 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+          
+          ctx.restore();
+        }
+
+        // ==========================================================
+        // 7. PRESENTATION CHOREOGRAPHY SEEK LOOP (60 FPS)
+        // ==========================================================
+        const animState = {
+          time: 0.0,
+          lastTime: 0.0
+        };
+
+        const masterTL = gsap.timeline({ paused: true });
+
+        masterTL.to(animState, {
+          time: 15.0,
+          duration: 15.0,
+          ease: "none"
+        }, 0.0);
+
+        const sfxTriggers = [
+          { time: 6.0, type: 'whoosh', triggered: false },
+          { time: 7.5, type: 'whoosh', triggered: false },
+          { time: 9.0, type: 'clap', triggered: false },
+          { time: 14.95, type: 'smack', triggered: false }
+        ];
+
+        function seekSceneAtTime(time) {
+          mainCtx.clearRect(0, 0, 1920, 1080);
+
+          // A. Draw cached blueprint wiggling frame
+          const wiggleFrame = Math.floor(time * vars.wiggleSpeed) % numWiggleFrames;
+          mainCtx.drawImage(offscreenCanvases[wiggleFrame], 0, 0);
+
+          const rc = rough.canvas(mainCanvas, { options: { roughness: 1.2 } });
+          const seedOffset = wiggleFrame * 123;
+
+          const sk = getSkeletonPoints(time);
+          const flyPos = getFlyPosition(time);
+          const handPos = getHandPositions(time, sk, flyPos);
+
+          // B. DRAW DYNAMIC COMPONENTS
+          drawChalkboardText(rc, mainCtx, time, seedOffset);
+          drawFlyTrail(rc, mainCtx, time);
+          drawLecturer(rc, mainCtx, time, sk, handPos, flyPos, seedOffset);
+          drawSweatDroplet(rc, mainCtx, time, sk, seedOffset);
+          drawFly(rc, mainCtx, time, flyPos);
+
+          // C. DRAW DROPPED MARKER
+          const markState = getMarkerPosition(time);
+          if (markState) {
+            mainCtx.save();
+            ctx = mainCtx;
+            ctx.translate(markState.x, markState.y);
+            ctx.rotate((markState.angle * Math.PI) / 180);
+            rc.rectangle(-10, -3, 20, 6, {
+              stroke: "#475569",
+              fill: "#3b82f6",
+              fillStyle: "solid",
+              strokeWidth: 1.5,
+              roughness: 1.0,
+              seed: 3939 + seedOffset
+            });
+            ctx.restore();
+          }
+
+          // D. REAL-TIME HUD INDICATORS
+          mainCtx.save();
+          mainCtx.font = "bold 16px 'Outfit'";
+          mainCtx.fillStyle = "#334155";
+
+          const fX = Math.round(flyPos.x);
+          const fY = Math.round(flyPos.y);
+          const speed = Math.round(Math.sqrt(flyPos.vx * flyPos.vx + flyPos.vy * flyPos.vy));
+          const dx = flyPos.x - sk.headX;
+          const dy = flyPos.y - sk.headY;
+          const distToHead = Math.round(Math.sqrt(dx * dx + dy * dy));
+
+          let status = "LECTURING: INTRODUCING CHAOS";
+          if (time >= 2.5 && time < 5.0) status = "DISTRACTED: ABUSE OF FLY CUES";
+          else if (time >= 5.0 && time < 5.8) status = "ANNOYED: DROP MARKER FOR DESTRUCTION";
+          else if (time >= 5.8 && time < 6.4) status = "SWATTING 1: RIGHT HAND SWIPE MISS";
+          else if (time >= 6.4 && time < 7.3) status = "CHOREOGRAPHING ESCAPE LOOP";
+          else if (time >= 7.3 && time < 7.9) status = "SWATTING 2: LEFT HAND SWIPE MISS";
+          else if (time >= 7.9 && time < 8.7) status = "STALKING: INTERFERENCE ENHANCED";
+          else if (time >= 8.7 && time < 9.6) status = "CLAPPING: DOUBLE HAND EXPLOSION MISS";
+          else if (time >= 9.6 && time < 10.5) status = "ZOOMING TO LANDING ANGLE";
+          else if (time >= 10.5 && time < 11.5) status = "LANDED: NOSE CAPTURE / STATIC HORROR";
+          else if (time >= 11.5 && time < 14.95) status = "EXECUTION: SLOW SMACK CRUNCH APPROACH";
+          else if (time >= 14.95) status = "SMACK! RED NOSE / FLY ESCAPED";
+
+          mainCtx.fillText(`Fly Position: X = ${fX} px,  Y = ${fY} px`, 1205, 265);
+          mainCtx.fillText(`Fly Velocity magnitude: ${speed} px/s`, 1205, 305);
+          mainCtx.fillText(`Distance to Lecturer Face: ${distToHead} px`, 1205, 345);
+          mainCtx.fillText(`Procedural Buzz Frequency: ${time >= 1.0 && time < 14.95 ? 130 + Math.min(35, speed * 0.04) : 0} Hz`, 1205, 385);
+
+          // Render highlighted Status Box
+          rc.rectangle(1200, 405, 540, 36, {
+            fill: status.includes("SMACK") || status.includes("MISS") ? "#ef4444" : vars.highlighterColor,
+            fillStyle: "solid",
+            stroke: "none",
+            roughness: 1.0,
+            seed: 2288 + seedOffset
+          });
+          mainCtx.fillStyle = "#ffffff";
+          mainCtx.fillText(`Status: ${status}`, 1215, 428);
+          mainCtx.restore();
+
+          // E. RENDER ACTION CALLOUT BUBBLES
+          // Whoosh 1 swat text
+          if (time >= 5.9 && time < 6.3) {
+            mainCtx.save();
+            ctx = mainCtx;
+            ctx.font = "italic bold 32px 'Architects Daughter'";
+            ctx.fillStyle = "#ef4444";
+            ctx.fillText("WHOOSH!", flyPos.x - 70, flyPos.y + 45);
+            
+            rc.arc(flyPos.x - 20, flyPos.y + 10, 80, 40, Math.PI, Math.PI * 1.5, false, {
+              stroke: "#94a3b8",
+              strokeWidth: 2,
+              roughness: 1.5,
+              seed: 1212 + seedOffset
+            });
+            mainCtx.restore();
+          }
+
+          // Whoosh 2 swat text
+          if (time >= 7.4 && time < 7.8) {
+            mainCtx.save();
+            ctx = mainCtx;
+            ctx.font = "italic bold 32px 'Architects Daughter'";
+            ctx.fillStyle = "#ef4444";
+            ctx.fillText("WHOOSH!", flyPos.x + 35, flyPos.y - 45);
+            
+            rc.arc(flyPos.x + 20, flyPos.y - 10, 80, 40, 0, Math.PI * 0.5, false, {
+              stroke: "#94a3b8",
+              strokeWidth: 2,
+              roughness: 1.5,
+              seed: 1313 + seedOffset
+            });
+            mainCtx.restore();
+          }
+
+          // Double clap text
+          if (time >= 8.95 && time < 9.35) {
+            mainCtx.save();
+            ctx = mainCtx;
+            ctx.font = "italic bold 38px 'Architects Daughter'";
+            ctx.fillStyle = "#ef4444";
+            ctx.fillText("CLAP!", flyPos.x - 55, flyPos.y - 50);
+            
+            const clapX = flyPos.x;
+            const clapY = flyPos.y;
+            rc.circle(clapX, clapY, 32, {
+              stroke: "#e2e8f0",
+              strokeWidth: 1,
+              roughness: 1.6,
+              seed: 1414 + seedOffset
+            });
+            
+            for (let a = 0; a < 360; a += 45) {
+              const rad = (a * Math.PI) / 180;
+              const sx = clapX + 10 * Math.cos(rad);
+              const sy = clapY + 10 * Math.sin(rad);
+              const ex = clapX + 45 * Math.cos(rad);
+              const ey = clapY + 45 * Math.sin(rad);
+              rc.line(sx, sy, ex, ey, {
+                stroke: "#ef4444",
+                strokeWidth: 2,
+                roughness: 1.2,
+                seed: 1515 + seedOffset + a
+              });
+            }
+            mainCtx.restore();
+          }
+
+          // Smack painful red nose highlight
+          if (time >= 14.95) {
+            mainCtx.save();
+            ctx = mainCtx;
+            ctx.font = "italic bold 36px 'Architects Daughter'";
+            ctx.fillStyle = "#ef4444";
+            ctx.fillText("SMACK!", sk.noseX - 60, sk.noseY - 45);
+            
+            rc.circle(sk.noseX, sk.noseY, 15, {
+              stroke: "#ef4444",
+              fill: "#f87171",
+              fillStyle: "solid",
+              strokeWidth: 2,
+              roughness: 1.1,
+              seed: 1616 + seedOffset
+            });
+            mainCtx.restore();
+          }
+
+          // F. WEB AUDIO BUZZ VOLUME & GAIN MODULATORS
+          const isPlaying = (time !== animState.lastTime);
+          updateBuzzAudio(time, speed, distToHead, isPlaying);
+
+          // G. SYNTHESIZED SOUND TRIGGER CROSSINGS
+          const last = animState.lastTime;
+          sfxTriggers.forEach((trig) => {
+            if (last < trig.time && time >= trig.time) {
+              if (trig.type === 'whoosh') playWhooshSFX();
+              else if (trig.type === 'clap') playClapSFX();
+              else if (trig.type === 'smack') playSmackSFX();
+            }
+          });
+          
+          animState.lastTime = time;
+        }
+
+        // ==========================================================
+        // 8. INITIALIZATION & HYPERFRAMES TIMELINE REGISTRATION
+        // ==========================================================
+        masterTL.eventCallback("onUpdate", () => {
+          seekSceneAtTime(masterTL.time());
+        });
+
+        // Initialize AudioContext trigger on first click for Chrome safety
+        window.addEventListener('click', () => {
+          try {
+            initAudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+          } catch(e) {}
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+          initCachedWhiteboards();
+          seekSceneAtTime(0);
+        });
+
+        if (document.readyState === "complete" || document.readyState === "interactive") {
+          initCachedWhiteboards();
+          seekSceneAtTime(0);
+        }
+
+        // Register globally on __timelines
+        window.__timelines = window.__timelines || {};
+        window.__timelines["showcase-6-fly"] = masterTL;
+      </script>
+    </div>
+  </body>
+</html>

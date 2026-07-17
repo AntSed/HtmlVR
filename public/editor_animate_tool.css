@@ -1,0 +1,411 @@
+/* ==========================================================================
+   editor_animate_tool.css
+   HtmlVR Video Sequencer - Overlay Masking & Pivot Placement Interface
+   Aesthetic: Premium Dark, High-Fidelity Glassmorphism, Neon Accents
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-overlay: rgba(15, 23, 42, 0.75);
+  --bg-panel: rgba(15, 23, 42, 0.85);
+  --bg-canvas-fallback: #020617;
+  --bg-btn-hover: rgba(30, 41, 59, 0.8);
+  
+  --accent-neon-violet: #a855f7;
+  --accent-neon-cyan: #00f0ff;
+  --accent-neon-blue: #6366f1;
+  --accent-danger: #ef4444;
+  
+  --text-primary: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-dark: #0f172a;
+
+  --border-glow: 0 0 20px rgba(138, 43, 226, 0.4);
+  --cyan-glow: 0 0 12px rgba(0, 240, 255, 0.3);
+  --violet-glow: 0 0 15px rgba(168, 85, 247, 0.4);
+  --panel-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  
+  --glass-blur: blur(16px);
+  --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 1. Full-Screen Overlay Backdrop */
+#animate-tool-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.4); /* Transparent dim to keep background visible */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 9999;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 2. Canvas Container & Video Preview Frame */
+#animate-tool-canvas-container {
+  position: absolute;
+  background: transparent; /* Transparent so the preview iframe is visible underneath */
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  box-shadow: var(--border-glow);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: var(--transition-smooth);
+  z-index: 10;
+}
+
+#animate-tool-canvas-container canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: auto;
+  z-index: 1;
+  opacity: 0.55; /* Makes painted mask semi-transparent, allowing background details to show through */
+}
+
+/* 3. Parameter and Tool Side Panel */
+#animate-tool-panel {
+  width: 320px;
+  height: 100%;
+  background: var(--bg-panel);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  padding: 2rem 1.5rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  overflow-y: auto;
+  box-shadow: var(--panel-shadow);
+  z-index: 10010;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#animate-tool-panel h3 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem 0;
+}
+
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.panel-divider {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent);
+  width: 100%;
+}
+
+/* 4. Brush & Eraser Selectors (.tool-btn) */
+.tool-group {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.tool-btn {
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  padding: 0.85rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: var(--transition-smooth);
+}
+
+.tool-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-btn-hover);
+  border-color: rgba(0, 240, 255, 0.4);
+  box-shadow: var(--cyan-glow);
+}
+
+.tool-btn.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(0, 240, 255, 0.15));
+  border-color: var(--accent-neon-violet);
+  box-shadow: var(--violet-glow), inset 0 0 4px rgba(0, 240, 255, 0.3);
+}
+
+/* 5. Parameter Sliders & Inputs */
+.parameter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.parameter-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.parameter-value {
+  color: var(--accent-neon-cyan);
+  font-family: monospace;
+  font-weight: 600;
+}
+
+/* Custom Range Input Styling */
+input[type="range"].parameter-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].parameter-slider:focus {
+  outline: none;
+}
+
+/* Track styles */
+input[type="range"].parameter-slider::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 5px;
+  background: linear-gradient(90deg, var(--accent-neon-violet), var(--accent-neon-cyan));
+  border-radius: 3px;
+}
+
+input[type="range"].parameter-slider::-moz-range-track {
+  width: 100%;
+  height: 5px;
+  background: linear-gradient(90deg, var(--accent-neon-violet), var(--accent-neon-cyan));
+  border-radius: 3px;
+}
+
+/* Thumb styles */
+input[type="range"].parameter-slider::-webkit-slider-thumb {
+  height: 15px;
+  width: 15px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--accent-neon-violet);
+  box-shadow: 0 0 8px var(--accent-neon-cyan);
+  margin-top: -5px;
+  -webkit-appearance: none;
+  transition: transform 0.1s ease;
+}
+
+input[type="range"].parameter-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+}
+
+input[type="range"].parameter-slider::-moz-range-thumb {
+  height: 11px;
+  width: 11px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--accent-neon-violet);
+  box-shadow: 0 0 8px var(--accent-neon-cyan);
+  transition: transform 0.1s ease;
+}
+
+input[type="range"].parameter-slider::-moz-range-thumb:hover {
+  transform: scale(1.25);
+}
+
+/* Action Buttons (Save/Cancel inside Panel) */
+.action-btn-group {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.action-btn {
+  width: 100%;
+  padding: 0.85rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  border: none;
+}
+
+.action-btn.primary {
+  background: linear-gradient(135deg, var(--accent-neon-violet), var(--accent-neon-blue));
+  color: #ffffff;
+  box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
+}
+
+.action-btn.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(168, 85, 247, 0.6);
+}
+
+.action-btn.secondary {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+
+.action-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 6. The Pivot Marker Target */
+#animate-tool-pivot-marker {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 10;
+  filter: drop-shadow(0 0 4px var(--accent-danger)) drop-shadow(0 0 2px #ffffff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#animate-tool-pivot-marker::before,
+#animate-tool-pivot-marker::after {
+  content: '';
+  position: absolute;
+  background: var(--accent-danger);
+}
+
+/* Crosshair lines */
+#animate-tool-pivot-marker::before {
+  width: 100%;
+  height: 2px;
+}
+
+#animate-tool-pivot-marker::after {
+  width: 2px;
+  height: 100%;
+}
+
+/* Center precise ring */
+#animate-tool-pivot-marker .pivot-center {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: var(--accent-danger);
+  z-index: 11;
+  box-sizing: border-box;
+}
+
+/* 7. Loading Spinner Overlay */
+#animate-tool-spinner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* Class to toggle visibility via JS */
+#animate-tool-spinner.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.spinner-ring {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(0, 240, 255, 0.1);
+  border-radius: 50%;
+  border-top-color: var(--accent-neon-violet);
+  border-right-color: var(--accent-neon-cyan);
+  animation: spinAnimate 0.8s linear infinite;
+  box-shadow: var(--cyan-glow);
+}
+
+@keyframes spinAnimate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==========================================================================
+   Responsive Architecture
+   ========================================================================== */
+@media (max-width: 1024px) {
+  #animate-tool-overlay {
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+  }
+  
+  #animate-tool-panel {
+    width: 100%;
+    height: auto;
+    max-height: 45%;
+    border-left: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    padding: 1.25rem;
+    gap: 1.25rem;
+  }
+  
+  #animate-tool-canvas-container {
+    margin: 1rem;
+    max-height: calc(55vh - 2rem);
+  }
+
+  .action-btn-group {
+    flex-direction: row;
+  }
+}
+
+/* 8. Brush Size Circle Preview */
+#animate-tool-brush-preview {
+  position: absolute;
+  border: 1.5px solid #ffffff;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  display: none;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5), inset 0 0 4px rgba(255, 255, 255, 0.4);
+  z-index: 9998;
+  background: rgba(255, 51, 51, 0.15);
+}
+
+/* 9. Preview Canvas */
+#animate-tool-preview-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  pointer-events: none;
+  z-index: 9996;
+}
