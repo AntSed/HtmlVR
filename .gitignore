@@ -34,6 +34,7 @@ test_vo.wav
 
 # Static image assets (blackboard textures etc.)
 public/assets/*.png
+!public/assets/Screenshot_75.png
 public/assets/*.jpg
 public/assets/*.jpeg
 

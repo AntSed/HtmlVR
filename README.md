@@ -2,6 +2,8 @@
 
 A lightweight, programmatically controllable HTML5 video sequencer, timeline editor, and headless rendering pipeline. It bridges the gap between browser-based interactive editing and automated AI-directed media production.
 
+![HtmlVR Timeline Editor](public/assets/Screenshot_75.png)
+
 ## Features
 - **Reaper-style DAW Architecture:** Supports universal tracks (HTML slide templates, MP4/WebM videos, PNG/JPG images, MP3/WAV narration voiceovers, and background music).
 - **Interactive Web UI:** Sleek dark-mode editor with dragging, resizing, live volume meters, visual compressor threshold controls, and real-time transform tweaks (scale, offset, rotation, opacity, transitions).
