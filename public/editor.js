@@ -1740,6 +1740,17 @@
         updatePlayheadVertical();
     }
 
+    function selectClipBlock(block, isMeta = false) {
+        if (!block) return;
+        if (isMeta) {
+            block.classList.toggle('active');
+        } else {
+            document.querySelectorAll('.timeline-block').forEach(b => b.classList.remove('active'));
+            block.classList.add('active');
+        }
+        syncActiveClipToIframe();
+    }
+
     // Create a new timeline block element
     function createTimelineBlock(src, name, start, duration, trackIndex, fadeIn = 0, fadeOut = 0, compressTop = 1.0, compressBottom = 0.0, panX = 0, panY = 0, scale = 1.0, rotation = 0, opacity = 1.0, volumePoints = null, sourceStart = 0.0) {
         const row = document.querySelector(`.track-row[data-track-index="${trackIndex}"]`);
@@ -1834,6 +1845,7 @@
             middleBand.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                selectClipBlock(block, e.ctrlKey || e.metaKey || e.shiftKey);
                 const startY = e.clientY;
                 const startCTop = parseFloat(block.dataset.compressTop);
                 const startCBot = parseFloat(block.dataset.compressBottom);
@@ -1901,6 +1913,7 @@
             handleTop.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                selectClipBlock(block, e.ctrlKey || e.metaKey || e.shiftKey);
                 const startY = e.clientY;
                 const startCTop = parseFloat(block.dataset.compressTop);
                 const blockHeight = block.clientHeight;
@@ -1959,6 +1972,7 @@
             handleBottom.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                selectClipBlock(block, e.ctrlKey || e.metaKey || e.shiftKey);
                 const startY = e.clientY;
                 const startCBot = parseFloat(block.dataset.compressBottom);
                 const blockHeight = block.clientHeight;
@@ -2117,20 +2131,22 @@
                 
                 const svgPoints = pathPoints.map(p => {
                     const x = ((p.t - srcStart) / dur) * 100;
-                    const y = 90 - p.v * 80;
+                    const y = 98 - p.v * 96;
                     return { x, y };
                 });
                 
                 pathEnvelope.setAttribute("d", getLinearPath(svgPoints));
                 pathEnvelope.setAttribute("fill", "none");
-                pathEnvelope.setAttribute("stroke", "#d946ef");
-                pathEnvelope.setAttribute("stroke-width", "2");
+                pathEnvelope.setAttribute("stroke", "rgba(56, 189, 248, 0.75)");
+                pathEnvelope.setAttribute("stroke-width", "1.2");
                 pathEnvelope.setAttribute("vector-effect", "non-scaling-stroke");
+                pathEnvelope.style.pointerEvents = "stroke";
+                pathEnvelope.style.cursor = "ns-resize";
                 
                 points.forEach((p, idx) => {
                     if (p.t >= srcStart - 0.001 && p.t <= srcStart + dur + 0.001) {
                         const xPercent = ((p.t - srcStart) / dur) * 100;
-                        const yPercent = 90 - p.v * 80;
+                        const yPercent = 98 - p.v * 96;
                         
                         const dot = document.createElement("div");
                         dot.className = "volume-point-dot";
@@ -2152,6 +2168,7 @@
                         dot.addEventListener('mousedown', (ev) => {
                             ev.preventDefault();
                             ev.stopPropagation();
+                            selectClipBlock(block, ev.ctrlKey || ev.metaKey || ev.shiftKey);
                             
                             const durVal = parseFloat(block.dataset.duration) || 1.0;
                             const srcStartVal = parseFloat(block.dataset.sourceStart || 0.0);
@@ -2266,7 +2283,7 @@
                 const srcStart = parseFloat(block.dataset.sourceStart || 0.0);
                 const newT = srcStart + Math.max(0, Math.min(dur, (offsetX / rect.width) * dur));
                 const yPercent = (offsetY / rect.height) * 100;
-                const newV = Math.max(0.0, Math.min(1.0, (90 - yPercent) / 80));
+                const newV = Math.max(0.0, Math.min(1.0, (98 - yPercent) / 96));
                 
                 points.push({ t: newT, v: newV });
                 points.sort((a, b) => a.t - b.t);
@@ -2275,6 +2292,63 @@
                 updateEnvelopeVisuals();
                 syncVolumePointsToPreview();
                 updateProjectFromTimeline();
+            });
+
+            pathEnvelope.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                selectClipBlock(block, e.ctrlKey || e.metaKey || e.shiftKey);
+
+                const startY = e.clientY;
+                const blockHeight = block.clientHeight || 50;
+                const initialPoints = JSON.parse(JSON.stringify(points));
+
+                let dragTooltip = document.createElement('div');
+                dragTooltip.className = 'drag-tooltip';
+                dragTooltip.style.position = 'absolute';
+                dragTooltip.style.background = 'rgba(15, 23, 42, 0.95)';
+                dragTooltip.style.color = '#38bdf8';
+                dragTooltip.style.padding = '4px 8px';
+                dragTooltip.style.borderRadius = '4px';
+                dragTooltip.style.fontSize = '12px';
+                dragTooltip.style.fontWeight = 'bold';
+                dragTooltip.style.fontFamily = 'sans-serif';
+                dragTooltip.style.pointerEvents = 'none';
+                dragTooltip.style.zIndex = '9999';
+                dragTooltip.style.border = '1px solid rgba(56, 189, 248, 0.3)';
+                dragTooltip.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
+                document.body.appendChild(dragTooltip);
+
+                function onLineMove(ev) {
+                    const diffY = ev.clientY - startY;
+                    const deltaV = -(diffY / blockHeight);
+
+                    points.forEach((p, idx) => {
+                        const baseV = initialPoints[idx] !== undefined ? initialPoints[idx].v : p.v;
+                        p.v = Math.max(0.0, Math.min(1.0, baseV + deltaV));
+                    });
+
+                    block.dataset.volumePoints = JSON.stringify(points);
+                    updateEnvelopeVisuals();
+                    syncVolumePointsToPreview();
+
+                    const avgV = points.reduce((sum, p) => sum + p.v, 0) / (points.length || 1);
+                    const curDB = avgV > 0.0001 ? 20 * Math.log10(avgV) : -Infinity;
+                    const text = `Volume: ${Math.round(avgV * 100)}% (${curDB > -Infinity ? (curDB > 0.05 ? '+' : '') + curDB.toFixed(1) + ' dB' : '-inf dB'})`;
+                    dragTooltip.innerText = text;
+                    dragTooltip.style.left = `${ev.clientX + 15}px`;
+                    dragTooltip.style.top = `${ev.clientY - 25}px`;
+                }
+
+                function onLineUp() {
+                    document.removeEventListener('mousemove', onLineMove);
+                    document.removeEventListener('mouseup', onLineUp);
+                    if (dragTooltip) dragTooltip.remove();
+                    updateProjectFromTimeline();
+                }
+
+                document.addEventListener('mousemove', onLineMove);
+                document.addEventListener('mouseup', onLineUp);
             });
 
             updateEnvelopeVisuals();
@@ -2495,16 +2569,7 @@
             if (e.target.classList.contains('resize-handle')) return;
             e.preventDefault();
 
-            const isMeta = e.ctrlKey || e.metaKey || e.shiftKey;
-            const isAlreadyActive = block.classList.contains('active');
-
-            if (isMeta) {
-                block.classList.toggle('active');
-            } else if (!isAlreadyActive) {
-                document.querySelectorAll('.timeline-block').forEach(b => b.classList.remove('active'));
-                block.classList.add('active');
-            }
-            syncActiveClipToIframe();
+            selectClipBlock(block, e.ctrlKey || e.metaKey || e.shiftKey);
 
             if (block.classList.contains('active')) {
                 isDragging = true;
@@ -2609,14 +2674,8 @@
             updateProjectFromTimeline();
         }
 
-        // Double click to delete (or edit subproject)
-        if (src.startsWith('project:')) {
-            block.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                const subProjName = src.substring(8);
-                window.location.search = `?project=${encodeURIComponent(subProjName)}`;
-            });
-        } else {
+        // Double click to delete (for non-audio clips, except subprojects)
+        if (!src.startsWith('project:')) {
             block.addEventListener('dblclick', () => {
                 if (isAudio) return;
                 block.remove();
@@ -3206,11 +3265,12 @@
 
             const start = originalClip.start;
             const duration = originalClip.duration;
-            const currentTrackIndex = originalClip.trackIndex;
+            const currentTrackIndex = parseInt(originalClip.trackIndex);
+            const numTracks = project.trackConfigs.length;
 
             function isRangeOccupied(trackIndex, start, duration) {
                 return project.tracks.some(t => {
-                    if (t.trackIndex !== trackIndex) return false;
+                    if (parseInt(t.trackIndex) !== parseInt(trackIndex)) return false;
                     const end = start + duration;
                     const tEnd = t.start + t.duration;
                     return (start < tEnd - 0.05) && (t.start < end - 0.05);
@@ -3218,24 +3278,25 @@
             }
 
             let targetTrackIndex = -1;
-            // 1. Check neighboring tracks: T + 1, then T - 1
-            if (!isRangeOccupied(currentTrackIndex + 1, start, duration)) {
+            // 1. Check if track below (T + 1) exists and is free
+            if (currentTrackIndex + 1 < numTracks && !isRangeOccupied(currentTrackIndex + 1, start, duration)) {
                 targetTrackIndex = currentTrackIndex + 1;
-            } else if (currentTrackIndex - 1 >= 0 && !isRangeOccupied(currentTrackIndex - 1, start, duration)) {
+            }
+            // 2. Otherwise check if track above (T - 1) exists and is free
+            else if (currentTrackIndex - 1 >= 0 && !isRangeOccupied(currentTrackIndex - 1, start, duration)) {
                 targetTrackIndex = currentTrackIndex - 1;
-            } else {
-                // 2. Both neighbors are occupied or invalid. Create a new track right below the current track
+            }
+            // 3. Otherwise (neighbors occupied or T+1 out of bounds), create a new track right below currentTrackIndex
+            else {
                 insertTrackAt(currentTrackIndex + 1);
                 targetTrackIndex = currentTrackIndex + 1;
             }
 
-            // Create the cloned clip state
+            // Create deep copy of cloned clip state
             const newId = `clip_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-            const clonedClip = {
-                ...originalClip,
-                id: newId,
-                trackIndex: targetTrackIndex
-            };
+            const clonedClip = JSON.parse(JSON.stringify(originalClip));
+            clonedClip.id = newId;
+            clonedClip.trackIndex = targetTrackIndex;
 
             project.tracks.push(clonedClip);
 
@@ -3244,11 +3305,11 @@
             updateProjectFromTimeline();
             showToast("Clip cloned successfully!");
 
-            // Focus the newly cloned clip
+            // Focus and select the newly cloned clip
             setTimeout(() => {
                 const newBlock = document.querySelector(`.timeline-block[data-id="${newId}"]`);
                 if (newBlock) {
-                    newBlock.click(); // Select the cloned clip
+                    selectClipBlock(newBlock);
                 }
             }, 50);
         }
@@ -4252,7 +4313,18 @@
             settings.duration = Math.max(1, maxDuration);
             settings.renderMode = 'webcodecs';
 
-            // Show render progress modal
+            // Reset render modal UI
+            const renderAudioStatsPanel = document.getElementById('render-audio-stats-panel');
+            const btnRenderDownload = document.getElementById('btn-render-download');
+            const renderModalTitle = document.getElementById('render-modal-title');
+            const renderSubHint = document.getElementById('render-sub-hint');
+
+            if (renderAudioStatsPanel) renderAudioStatsPanel.style.display = 'none';
+            if (btnRenderDownload) btnRenderDownload.style.display = 'none';
+            if (renderModalTitle) renderModalTitle.innerText = "Compiling Media Output";
+            if (renderSubHint) renderSubHint.innerText = "Rendering frames sequentially via Puppeteer & FFmpeg...";
+            if (btnRenderCancel) btnRenderCancel.innerText = "STOP RENDER";
+
             renderModal.style.display = 'flex';
             renderStatus.innerText = "Initializing render...";
             renderProgressFill.style.width = '0%';
@@ -4276,8 +4348,26 @@
             }
         });
 
+        let pendingDownloadUrl = null;
+        let pendingDownloadFilename = null;
+
+        const btnRenderDownload = document.getElementById('btn-render-download');
+        if (btnRenderDownload) {
+            btnRenderDownload.addEventListener('click', () => {
+                if (pendingDownloadUrl) {
+                    const link = document.createElement('a');
+                    link.href = pendingDownloadUrl;
+                    link.download = pendingDownloadFilename || `render_${Date.now()}.mp4`;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    showToast("Video download started!");
+                }
+            });
+        }
+
         // Listen for messages from preview iframe regarding in-browser rendering
-        window.addEventListener('message', (e) => {
+        window.addEventListener('message', async (e) => {
             if (!e.data) return;
             if (e.data.type === 'render-progress') {
                 renderProgressFill.style.width = `${e.data.progress}%`;
@@ -4288,27 +4378,65 @@
                 if (renderAbortController) {
                     renderAbortController = null;
                 }
-                setTimeout(() => {
-                    renderModal.style.display = 'none';
-                    
-                    // Trigger download of client-side rendered file
-                    const link = document.createElement('a');
-                    link.href = e.data.url;
-                    if (e.data.isServerMuxed) {
-                        link.download = e.data.url.split('/').pop();
-                    } else {
-                        link.download = `render_${Date.now()}.webm`;
+                
+                const renderAudioStatsPanel = document.getElementById('render-audio-stats-panel');
+                const btnRenderDownload = document.getElementById('btn-render-download');
+                const renderModalTitle = document.getElementById('render-modal-title');
+
+                if (renderModalTitle) renderModalTitle.innerText = "Render Complete!";
+                if (btnRenderCancel) btnRenderCancel.innerText = "CLOSE";
+
+                pendingDownloadUrl = e.data.url;
+                pendingDownloadFilename = e.data.url ? e.data.url.split('/').pop() : `render_${Date.now()}.mp4`;
+                if (btnRenderDownload) btnRenderDownload.style.display = 'inline-block';
+
+                let stats = e.data.audioStats;
+                if (!stats) {
+                    try {
+                        const previewIframe = document.getElementById('preview-iframe');
+                        if (previewIframe && previewIframe.contentWindow && typeof previewIframe.contentWindow.renderAudioOffline === 'function') {
+                            let maxDuration = 0;
+                            project.tracks.forEach(t => {
+                                const end = t.start + t.duration;
+                                if (end > maxDuration) maxDuration = end;
+                            });
+                            const d = Math.max(1, maxDuration);
+                            const wavBuf = await previewIframe.contentWindow.renderAudioOffline(d, null, null, null, true);
+                            if (wavBuf && wavBuf.audioStats) {
+                                stats = wavBuf.audioStats;
+                            }
+                        }
+                    } catch(err) {
+                        console.warn("Could not probe audio stats on render completion:", err);
                     }
-                    document.body.appendChild(link);
-                    link.click();
-                    link.remove();
-                    
-                    if (e.data.isServerMuxed) {
-                        showToast("In-browser render & audio muxing complete! Download triggered.");
-                    } else {
-                        showToast("In-browser render complete! (Fallback silent download)");
+                }
+
+                if (stats && renderAudioStatsPanel) {
+                    document.getElementById('render-stat-peak').innerText = `${stats.peakDb} dBFS`;
+                    document.getElementById('render-stat-integrated').innerText = `${stats.integratedLufs} LUFS`;
+                    document.getElementById('render-stat-lra').innerText = `${stats.lra} LU`;
+                    document.getElementById('render-stat-quiet').innerText = `${stats.quietLufs} LUFS`;
+                    document.getElementById('render-stat-mid').innerText = `${stats.midLufs} LUFS`;
+                    document.getElementById('render-stat-loud').innerText = `${stats.loudLufs} LUFS`;
+
+                    const badge = document.getElementById('render-peak-badge');
+                    if (badge) {
+                        if (stats.isClipping) {
+                            badge.innerText = 'PEAK HIGH ⚠';
+                            badge.style.background = 'rgba(239, 68, 68, 0.2)';
+                            badge.style.color = '#f87171';
+                            badge.style.borderColor = '#ef4444';
+                        } else {
+                            badge.innerText = 'PEAK SAFE ✓';
+                            badge.style.background = 'rgba(34, 197, 94, 0.2)';
+                            badge.style.color = '#4ade80';
+                            badge.style.borderColor = '#22c55e';
+                        }
                     }
-                }, 800);
+                    renderAudioStatsPanel.style.display = 'block';
+                }
+
+                showToast("Render complete! Audio report generated.");
             } else if (e.data.type === 'render-error') {
                 if (renderAbortController) {
                     renderAbortController = null;
@@ -4317,6 +4445,155 @@
                 renderModal.style.display = 'none';
             }
         });
+
+        // Auto-Master Loudness Normalization Engine
+        async function runAutoMasterNormalization(targetLUFS = -16.0, userOffsetDb = 0.0) {
+            showToast("Probing project loudness...");
+            
+            const effectiveTargetLUFS = targetLUFS + userOffsetDb;
+
+            const previewIframe = document.getElementById('preview-iframe');
+            if (!previewIframe || !previewIframe.contentWindow || typeof previewIframe.contentWindow.renderAudioOffline !== 'function') {
+                showToast("Render engine unavailable for audio probe.", true);
+                return null;
+            }
+
+            try {
+                let maxDuration = 0;
+                project.tracks.forEach(t => {
+                    const end = t.start + t.duration;
+                    if (end > maxDuration) maxDuration = end;
+                });
+                const d = Math.max(1, maxDuration);
+
+                // Run fast offline probe in browser memory
+                const wavBuf = await previewIframe.contentWindow.renderAudioOffline(d, null, null, null, true);
+                const stats = wavBuf ? wavBuf.audioStats : null;
+
+                if (!stats || stats.integratedLufs === undefined || stats.integratedLufs <= -90) {
+                    showToast("No active audio tracks detected to normalize.");
+                    return null;
+                }
+
+                const currentLUFS = stats.integratedLufs;
+                const deltaDb = effectiveTargetLUFS - currentLUFS;
+
+                console.log(`Auto-Master Probe: Current LUFS = ${currentLUFS}, Target = ${effectiveTargetLUFS}, Delta = ${deltaDb.toFixed(2)} dB`);
+
+                let cTop = project.masterCompressTop !== undefined ? project.masterCompressTop : 1.0;
+                let cBot = project.masterCompressBottom !== undefined ? project.masterCompressBottom : 0.0;
+
+                let currentGainRatio = cTop * (1.0 + 4.0 * cBot);
+                let currentGainDb = 20 * Math.log10(Math.max(0.01, currentGainRatio));
+
+                let newGainDb = currentGainDb + deltaDb;
+                newGainDb = Math.max(-12.0, Math.min(18.0, newGainDb));
+
+                let newGainRatio = Math.pow(10, newGainDb / 20);
+
+                if (newGainRatio <= 1.0) {
+                    cBot = 0.0;
+                    cTop = Math.max(0.2, newGainRatio);
+                } else {
+                    cTop = 1.0;
+                    cBot = Math.min(1.0, (newGainRatio - 1.0) / 4.0);
+                }
+
+                project.masterCompressTop = parseFloat(cTop.toFixed(3));
+                project.masterCompressBottom = parseFloat(cBot.toFixed(3));
+
+                if (previewIframe.contentWindow.updateMasterLimiter) {
+                    previewIframe.contentWindow.updateMasterLimiter(project.masterCompressTop, project.masterCompressBottom);
+                }
+
+                if (typeof updateMasterCompressorVisuals === 'function') {
+                    updateMasterCompressorVisuals();
+                }
+                saveProjectStateDebounced();
+
+                const signedDelta = (deltaDb >= 0 ? '+' : '') + deltaDb.toFixed(1);
+                showToast(`⚡ Auto-Master Applied: ${signedDelta} dB → Target ${effectiveTargetLUFS.toFixed(1)} LUFS`);
+
+                return { currentLUFS, newLUFS: effectiveTargetLUFS, deltaDb };
+            } catch (err) {
+                console.error("Auto-Master normalization failed:", err);
+                showToast("Auto-Master error: " + err.message, true);
+                return null;
+            }
+        }
+
+        const btnMasterAutoLevel = document.getElementById('btn-master-auto-level');
+        if (btnMasterAutoLevel) {
+            btnMasterAutoLevel.addEventListener('click', () => {
+                const targetSelect = document.getElementById('render-target-standard');
+                const offsetSlider = document.getElementById('render-lufs-offset');
+                const targetLufs = targetSelect ? parseFloat(targetSelect.value) : -16.0;
+                const offsetDb = offsetSlider ? parseFloat(offsetSlider.value) : 0.0;
+                runAutoMasterNormalization(targetLufs, offsetDb);
+            });
+        }
+
+        const renderTargetStandard = document.getElementById('render-target-standard');
+        const renderLufsOffset = document.getElementById('render-lufs-offset');
+        const renderLufsOffsetVal = document.getElementById('render-lufs-offset-val');
+        const renderTargetLufsVal = document.getElementById('render-target-lufs-val');
+        const btnApplyAutoMaster = document.getElementById('btn-apply-auto-master');
+
+        function updateTargetLufsLabel() {
+            const std = renderTargetStandard ? parseFloat(renderTargetStandard.value) : -16.0;
+            const off = renderLufsOffset ? parseFloat(renderLufsOffset.value) : 0.0;
+            const effective = (std + off).toFixed(1);
+            if (renderTargetLufsVal) renderTargetLufsVal.innerText = `Target: ${effective} LUFS`;
+            if (renderLufsOffsetVal) renderLufsOffsetVal.innerText = `${off >= 0 ? '+' : ''}${off.toFixed(1)} dB`;
+        }
+
+        if (renderTargetStandard) renderTargetStandard.addEventListener('change', updateTargetLufsLabel);
+        if (renderLufsOffset) renderLufsOffset.addEventListener('input', updateTargetLufsLabel);
+
+        if (btnApplyAutoMaster) {
+            btnApplyAutoMaster.addEventListener('click', async () => {
+                const std = renderTargetStandard ? parseFloat(renderTargetStandard.value) : -16.0;
+                const off = renderLufsOffset ? parseFloat(renderLufsOffset.value) : 0.0;
+                const result = await runAutoMasterNormalization(std, off);
+                if (result) {
+                    showToast("Re-probing audio after normalization...");
+                    const previewIframe = document.getElementById('preview-iframe');
+                    if (previewIframe && previewIframe.contentWindow && typeof previewIframe.contentWindow.renderAudioOffline === 'function') {
+                        let maxDuration = 0;
+                        project.tracks.forEach(t => {
+                            const end = t.start + t.duration;
+                            if (end > maxDuration) maxDuration = end;
+                        });
+                        const d = Math.max(1, maxDuration);
+                        const wavBuf = await previewIframe.contentWindow.renderAudioOffline(d, null, null, null, true);
+                        if (wavBuf && wavBuf.audioStats) {
+                            const stats = wavBuf.audioStats;
+                            document.getElementById('render-stat-peak').innerText = `${stats.peakDb} dBFS`;
+                            document.getElementById('render-stat-integrated').innerText = `${stats.integratedLufs} LUFS`;
+                            document.getElementById('render-stat-lra').innerText = `${stats.lra} LU`;
+                            document.getElementById('render-stat-quiet').innerText = `${stats.quietLufs} LUFS`;
+                            document.getElementById('render-stat-mid').innerText = `${stats.midLufs} LUFS`;
+                            document.getElementById('render-stat-loud').innerText = `${stats.loudLufs} LUFS`;
+
+                            const badge = document.getElementById('render-peak-badge');
+                            if (badge) {
+                                if (stats.isClipping) {
+                                    badge.innerText = 'PEAK HIGH ⚠';
+                                    badge.style.background = 'rgba(239, 68, 68, 0.2)';
+                                    badge.style.color = '#f87171';
+                                    badge.style.borderColor = '#ef4444';
+                                } else {
+                                    badge.innerText = 'PEAK SAFE ✓';
+                                    badge.style.background = 'rgba(34, 197, 94, 0.2)';
+                                    badge.style.color = '#4ade80';
+                                    badge.style.borderColor = '#22c55e';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
 
         // Vertical resizer (sidebar width) dragging logic
         const resizerV = document.getElementById('resizer-v');

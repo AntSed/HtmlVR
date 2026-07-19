@@ -4,11 +4,9 @@ renders/
 *.log
 .DS_Store
 
-# Audio/video assets
-public/assets/voice_*
-public/assets/*.wav
-public/assets/*.mp3
-public/assets/*.mp4
+# Audio/video assets & subdirectories
+public/assets/*
+!public/assets/Screenshot_75.png
 
 # Project-specific compositions
 public/compositions/slide_*

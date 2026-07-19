@@ -480,7 +480,8 @@
             <div id="master-meter-panel" class="collapsed">
                 <button id="btn-toggle-master-meter" title="Toggle Master VU Meter">▸</button>
                 <div class="master-meter-peaks-text" id="master-meter-peaks" title="Max Peak levels (Click to reset)">L:-inf R:-inf</div>
-                <div class="meter-container">
+                <div class="meter-container" style="position: relative;">
+                    <button id="btn-master-auto-level" style="position: absolute; top: 4px; right: 4px; background: rgba(0, 240, 255, 0.15); border: 1px solid rgba(0, 240, 255, 0.4); color: #00f0ff; font-size: 11px; font-weight: bold; width: 18px; height: 18px; border-radius: 3px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; transition: all 0.2s; z-index: 10;" title="Auto-normalize project loudness (Auto-Level to Target LUFS)">A</button>
                     <div class="meter-bars-inner-container">
                         <div class="meter-bar-wrapper" title="Left Channel (L)">
                             <div class="meter-bar" id="master-meter-l"></div>
@@ -527,16 +528,85 @@
         </footer>
     </div>
 
-    <!-- Render Progress Modal Overlay -->
+    <!-- Render Progress & Audio Analysis Modal Overlay -->
     <div id="render-modal">
-        <div class="modal-box">
-            <h2>Compiling Media Output</h2>
-            <p id="render-status">Starting headless Chromium render engine...</p>
-            <div class="progress-bar-container">
-                <div id="render-progress-fill"></div>
+        <div class="modal-box" style="max-width: 520px; border: 1px solid rgba(0, 240, 255, 0.4); box-shadow: 0 0 35px rgba(0, 240, 255, 0.2);">
+            <h2 id="render-modal-title" style="color: #00f0ff; margin-bottom: 10px;">Compiling Media Output</h2>
+            <p id="render-status" style="color: #cbd5e1; font-size: 13px;">Starting headless Chromium render engine...</p>
+            <div class="progress-bar-container" style="background: rgba(15, 23, 42, 0.8); height: 10px; border-radius: 5px; overflow: hidden; margin: 12px 0;">
+                <div id="render-progress-fill" style="height: 100%; width: 0%; background: linear-gradient(90deg, #00f0ff, #3b82f6); transition: width 0.2s ease;"></div>
             </div>
-            <p class="sub-hint">Rendering frames sequentially via Puppeteer & FFmpeg...</p>
-            <div style="margin-top: 10px; display: flex; justify-content: center;">
+            <p id="render-sub-hint" class="sub-hint">Rendering frames sequentially via Puppeteer & FFmpeg...</p>
+
+            <!-- Render Audio Analysis Report Panel (shown on completion) -->
+            <div id="render-audio-stats-panel" style="display: none; margin-top: 15px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px; text-align: left;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span style="font-size: 13px; font-weight: bold; color: #f8fafc; text-transform: uppercase; letter-spacing: 0.5px;">🎛️ Audio Quality & Loudness Report</span>
+                    <span id="render-peak-badge" style="font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 4px; background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e;">PEAK SAFE</span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
+                    <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); padding: 8px 10px; border-radius: 6px; text-align: center;">
+                        <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">True Peak</div>
+                        <div id="render-stat-peak" style="font-size: 16px; font-weight: bold; color: #00f0ff; margin-top: 2px;">-1.5 dB</div>
+                    </div>
+                    <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); padding: 8px 10px; border-radius: 6px; text-align: center;">
+                        <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Integrated</div>
+                        <div id="render-stat-integrated" style="font-size: 16px; font-weight: bold; color: #38bdf8; margin-top: 2px;">-16.5 LUFS</div>
+                    </div>
+                    <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); padding: 8px 10px; border-radius: 6px; text-align: center;">
+                        <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Range (LRA)</div>
+                        <div id="render-stat-lra" style="font-size: 16px; font-weight: bold; color: #a855f7; margin-top: 2px;">8.2 LU</div>
+                    </div>
+                </div>
+
+                <div style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.06); padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; font-weight: 600;">Loudness Breakdown by Section:</div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding-bottom: 4px; margin-bottom: 4px;">
+                        <span style="color: #64748b;">Quiet Passages (10%):</span>
+                        <span id="render-stat-quiet" style="color: #f1f5f9; font-weight: bold; font-family: monospace;">-24.5 LUFS</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding-bottom: 4px; margin-bottom: 4px;">
+                        <span style="color: #64748b;">Normal / Dialogue (Mid):</span>
+                        <span id="render-stat-mid" style="color: #f1f5f9; font-weight: bold; font-family: monospace;">-17.1 LUFS</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                        <span style="color: #64748b;">Loud Passages (10%):</span>
+                        <span id="render-stat-loud" style="color: #f1f5f9; font-weight: bold; font-family: monospace;">-13.8 LUFS</span>
+                    </div>
+                </div>
+
+                <!-- Auto-Master Target & User Offset Tuning Section -->
+                <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(0, 240, 255, 0.25); padding: 10px 12px; border-radius: 6px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 11px; font-weight: bold; color: #00f0ff; text-transform: uppercase; letter-spacing: 0.5px;">⚡ Auto-Level Master Normalization</span>
+                        <span id="render-target-lufs-val" style="font-size: 11px; font-weight: bold; color: #f8fafc; font-family: monospace;">Target: -16.0 LUFS</span>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                        <select id="render-target-standard" style="background: #0f172a; color: #38bdf8; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 4px; padding: 4px 6px; font-size: 11px; font-weight: bold; outline: none;">
+                            <option value="-16.0">YouTube / Web (-16 LUFS)</option>
+                            <option value="-14.0">Social / Loud (-14 LUFS)</option>
+                            <option value="-18.0">Podcast / Broadcast (-18 LUFS)</option>
+                        </select>
+
+                        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8;">
+                                <span>User Fine Offset:</span>
+                                <span id="render-lufs-offset-val" style="color: #a855f7; font-weight: bold;">0.0 dB</span>
+                            </div>
+                            <input type="range" id="render-lufs-offset" min="-4.0" max="4.0" step="0.5" value="0.0" class="prop-slider">
+                        </div>
+                    </div>
+
+                    <button id="btn-apply-auto-master" style="width: 100%; padding: 8px; background: linear-gradient(135deg, rgba(0, 240, 255, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%); border: 1px solid #00f0ff; border-radius: 4px; color: #00f0ff; font-weight: bold; font-size: 11px; cursor: pointer; transition: all 0.2s; letter-spacing: 0.3px; text-transform: uppercase;" title="Auto-adjust Master Limiter/Compressor to hit target LUFS">
+                        ⚡ Apply Auto-Leveling to Project
+                    </button>
+                </div>
+            </div>
+
+            <div style="margin-top: 15px; display: flex; justify-content: center; gap: 10px;">
+                <button id="btn-render-download" class="confirm-btn" style="display: none; padding: 10px 20px; background: linear-gradient(135deg, #00f0ff 0%, #0284c7 100%); color: #000; font-weight: bold; border-radius: 6px; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(0, 240, 255, 0.3);">⬇ Download Video</button>
                 <button id="btn-render-cancel" class="danger-btn" style="margin: 0; padding: 10px 24px;">STOP RENDER</button>
             </div>
         </div>

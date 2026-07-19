@@ -917,8 +917,9 @@ body.dragging iframe {
 }
 .compress-handle {
     position: absolute;
-    left: 0;
-    width: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
     height: 6px;
     background: transparent;
     cursor: ns-resize;
@@ -948,19 +949,23 @@ body.dragging iframe {
 /* Middle interactive compressor band */
 .compress-band {
     position: absolute;
-    left: 0;
-    width: 100%;
-    background: rgba(59, 130, 246, 0.05); /* very subtle highlight */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    background: rgba(59, 130, 246, 0.08); /* subtle highlight */
+    border-left: 1px dashed rgba(59, 130, 246, 0.3);
+    border-right: 1px dashed rgba(59, 130, 246, 0.3);
     cursor: ns-resize;
     z-index: 3;
     pointer-events: auto;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s;
 }
 .compress-band:hover {
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(59, 130, 246, 0.22);
+    border-color: rgba(59, 130, 246, 0.6);
 }
 .compress-band:active {
-    background: rgba(59, 130, 246, 0.25);
+    background: rgba(59, 130, 246, 0.35);
     cursor: grabbing;
 }
 
@@ -975,12 +980,19 @@ body.dragging iframe {
     z-index: 11; /* sits above resize handles */
 }
 .volume-envelope-path {
-    stroke: #d946ef;
-    stroke-width: 2px;
+    stroke: rgba(56, 189, 248, 0.75);
+    stroke-width: 1.2px;
     fill: none;
     vector-effect: non-scaling-stroke;
-    filter: drop-shadow(0 0 2px rgba(217, 70, 239, 0.6));
-    opacity: 0.85;
+    filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.5));
+    opacity: 0.9;
+    pointer-events: stroke;
+    cursor: ns-resize;
+}
+.volume-envelope-path:hover {
+    stroke: #ffffff;
+    stroke-width: 1.8px;
+    filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.9));
 }
 .volume-points-container {
     position: absolute;
@@ -993,22 +1005,24 @@ body.dragging iframe {
 }
 .volume-point-dot {
     position: absolute;
-    width: 10px;
-    height: 10px;
-    background: #d946ef;
-    border: 2px solid #ffffff;
+    width: 7px;
+    height: 7px;
+    background: #38bdf8;
+    border: 1px solid #ffffff;
     border-radius: 50%;
     transform: translate(-50%, -50%);
     cursor: pointer;
     pointer-events: auto;
-    box-shadow: 0 0 6px rgba(217, 70, 239, 0.8);
-    transition: transform 0.1s ease, background 0.1s ease, box-shadow 0.1s ease;
+    box-shadow: 0 0 4px rgba(56, 189, 248, 0.7);
+    opacity: 0.7;
+    transition: transform 0.1s ease, background 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
 .volume-point-dot:hover {
-    transform: translate(-50%, -50%) scale(1.4);
+    transform: translate(-50%, -50%) scale(1.5);
+    opacity: 1;
     background: #ffffff;
-    border-color: #d946ef;
-    box-shadow: 0 0 10px rgba(217, 70, 239, 1);
+    border-color: #38bdf8;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 1);
 }
 /* Invisible larger hit-box for easier clicking at edges */
 .volume-point-dot::after {

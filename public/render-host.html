@@ -461,6 +461,9 @@
                 if (track.animate_tool) {
                     el.dataset.animateTool = JSON.stringify(track.animate_tool);
                 }
+                if (track.volumePoints) {
+                    el.dataset.volumePoints = typeof track.volumePoints === 'string' ? track.volumePoints : JSON.stringify(track.volumePoints);
+                }
                 
                 el.style.position = 'absolute';
                 el.style.zIndex = 100 - parseInt(track.trackIndex || 0);
@@ -1396,7 +1399,7 @@
 
                 offlineMasterLimiter.gain.setValueAtTime(limitGain, offlineCtx.currentTime);
 
-                // Brickwall Lookahead Limiter to guarantee peaks do not exceed -1.0 dBFS offline
+                // Brickwall Lookahead Limiter to guarantee peaks do not exceed -1.5 dBFS offline (headroom for lossy AAC/MPEG encoding)
                 function createOfflineLookaheadLimiter(ctx) {
                     const bufferSize = 4096;
                     const limiterNode = ctx.createScriptProcessor(bufferSize, 2, 2);
@@ -1406,7 +1409,7 @@
                     const delaySamples = Math.ceil(lookaheadTime * sampleRate);
                     const releaseTime = 0.08; // 80ms release
                     const coeffRelease = 1.0 - Math.exp(-1.0 / (releaseTime * sampleRate));
-                    const C = 0.89125; // -1.0 dBFS ceiling
+                    const C = 0.8414; // -1.5 dBFS ceiling (headroom for AAC / MPEG lossy compression inter-sample peaks)
                     
                     const delayBufL = new Float32Array(delaySamples);
                     const delayBufR = new Float32Array(delaySamples);
@@ -1501,7 +1504,7 @@
                         })();
                         promises.push(p);
                     }
-                } else if (type === 'audio') {
+                } else if (type === 'audio' || type === 'video') {
                     const p = (async () => {
                         try {
                             let fetchFn = window.fetch;
@@ -1526,6 +1529,7 @@
                             const source = offlineCtx.createBufferSource();
                             source.buffer = audioBuffer;
                             
+                            const sourceStart = parseFloat(el.dataset.sourceStart || 0.0);
                             const fadeIn = parseFloat(el.dataset.fadeIn) || 0;
                             const fadeOut = parseFloat(el.dataset.fadeOut) || 0;
                             const cTop = parseFloat(el.dataset.compressTop) ?? 1.0;
@@ -1577,7 +1581,6 @@
                                         const curveValues = new Float32Array(numSamples);
                                         for (let s = 0; s < numSamples; s++) {
                                             const localTime = (s / (numSamples - 1)) * trackDuration;
-                                            const sourceStart = parseFloat(el.dataset.sourceStart || 0.0);
                                             curveValues[s] = getEnvelopeVolume(pts, localTime + sourceStart, trackDuration);
                                         }
                                         envelopeGain.gain.setValueCurveAtTime(curveValues, absoluteStart, trackDuration);
@@ -1611,10 +1614,14 @@
                                 fadeGain.connect(destinationNode);
                             }
                             
-                            source.start(absoluteStart);
+                            const bufferDuration = audioBuffer.duration;
+                            const validSourceStart = Math.max(0, Math.min(bufferDuration, sourceStart));
+                            const validDuration = Math.max(0, Math.min(bufferDuration - validSourceStart, trackDuration));
+
+                            source.start(absoluteStart, validSourceStart, validDuration);
                             hasAudioTracks = true;
                         } catch(e) {
-                            console.error("Failed to render offline pure audio track:", e);
+                            console.error("Failed to render offline audio track:", e);
                         }
                     })();
                     promises.push(p);
@@ -1633,9 +1640,12 @@
 
             console.log("Rendering offline mixed audio buffer...");
             const renderedBuffer = await offlineCtx.startRendering();
+            const audioStats = analyzeAudioBuffer(renderedBuffer);
+            window.lastRenderAudioStats = audioStats;
             const wavBuffer = bufferToWav(renderedBuffer);
             
             if (returnBuffer) {
+                wavBuffer.audioStats = audioStats;
                 return wavBuffer;
             }
             
@@ -1647,6 +1657,89 @@
             }
             return btoa(binary);
         };
+
+        function analyzeAudioBuffer(buffer) {
+            if (!buffer) return null;
+            const channelL = buffer.getChannelData(0);
+            const channelR = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : channelL;
+            const len = buffer.length;
+            const sampleRate = buffer.sampleRate;
+
+            let maxPeak = 0;
+            let sumSqAll = 0;
+
+            const windowSamples = Math.max(1, Math.floor(sampleRate * 0.1)); // 100ms windows
+            const blockRmsList = [];
+
+            for (let i = 0; i < len; i += windowSamples) {
+                let blockSumSq = 0;
+                const blockEnd = Math.min(len, i + windowSamples);
+                const count = blockEnd - i;
+
+                for (let j = i; j < blockEnd; j++) {
+                    const absL = Math.abs(channelL[j]);
+                    const absR = Math.abs(channelR[j]);
+                    if (absL > maxPeak) maxPeak = absL;
+                    if (absR > maxPeak) maxPeak = absR;
+
+                    const sampleRms = (absL * absL + absR * absR) / 2;
+                    blockSumSq += sampleRms;
+                    sumSqAll += sampleRms;
+                }
+
+                const blockRms = Math.sqrt(blockSumSq / (count || 1));
+                if (blockRms > 0.00001) {
+                    blockRmsList.push(blockRms);
+                }
+            }
+
+            const maxPeakDb = maxPeak > 0.00001 ? 20 * Math.log10(maxPeak) : -100;
+            const overallRms = Math.sqrt(sumSqAll / (len || 1));
+            const integratedLufs = overallRms > 0.00001 ? 20 * Math.log10(overallRms) - 0.6 : -100;
+
+            blockRmsList.sort((a, b) => a - b);
+            const numBlocks = blockRmsList.length;
+
+            let quietLufs = integratedLufs;
+            let midLufs = integratedLufs;
+            let loudLufs = integratedLufs;
+            let lra = 0;
+
+            if (numBlocks > 0) {
+                const qStart = Math.floor(numBlocks * 0.05);
+                const qEnd = Math.max(qStart + 1, Math.floor(numBlocks * 0.20));
+                let qSumSq = 0;
+                for (let k = qStart; k < qEnd; k++) qSumSq += blockRmsList[k] * blockRmsList[k];
+                const qRms = Math.sqrt(qSumSq / (qEnd - qStart));
+                quietLufs = qRms > 0.00001 ? 20 * Math.log10(qRms) - 0.6 : -100;
+
+                const lStart = Math.floor(numBlocks * 0.85);
+                const lEnd = Math.max(lStart + 1, Math.floor(numBlocks * 0.98));
+                let lSumSq = 0;
+                for (let k = lStart; k < lEnd; k++) lSumSq += blockRmsList[k] * blockRmsList[k];
+                const lRms = Math.sqrt(lSumSq / (lEnd - lStart));
+                loudLufs = lRms > 0.00001 ? 20 * Math.log10(lRms) - 0.6 : -100;
+
+                const mStart = Math.floor(numBlocks * 0.20);
+                const mEnd = Math.max(mStart + 1, Math.floor(numBlocks * 0.80));
+                let mSumSq = 0;
+                for (let k = mStart; k < mEnd; k++) mSumSq += blockRmsList[k] * blockRmsList[k];
+                const mRms = Math.sqrt(mSumSq / (mEnd - mStart));
+                midLufs = mRms > 0.00001 ? 20 * Math.log10(mRms) - 0.6 : -100;
+
+                lra = Math.max(0, loudLufs - quietLufs);
+            }
+
+            return {
+                peakDb: parseFloat(maxPeakDb.toFixed(1)),
+                integratedLufs: parseFloat(integratedLufs.toFixed(1)),
+                quietLufs: parseFloat(quietLufs.toFixed(1)),
+                midLufs: parseFloat(midLufs.toFixed(1)),
+                loudLufs: parseFloat(loudLufs.toFixed(1)),
+                lra: parseFloat(lra.toFixed(1)),
+                isClipping: maxPeakDb > -0.5
+            };
+        }
 
         // Global spacebar event handler inside render-host
         window.addEventListener('keydown', (e) => {
@@ -2252,7 +2345,8 @@
                 window.parent.postMessage({
                     type: 'render-success',
                     url: result.path,
-                    isServerMuxed: true
+                    isServerMuxed: true,
+                    audioStats: (wavBuffer && wavBuffer.audioStats) ? wavBuffer.audioStats : window.lastRenderAudioStats
                 }, '*');
             } catch (muxErr) {
                 console.error("Failed to upload/mux client render on server:", muxErr);
